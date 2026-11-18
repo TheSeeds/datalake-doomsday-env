@@ -844,7 +844,7 @@ Registrado para não contaminar o escopo. Nenhum destes entra antes da Onda 7:
 | 2 | PostgreSQL: StatefulSet + CronJob ou CloudNativePG? | — | ✅ **respondida: StatefulSet** |
 | 3 | `drop/`: PVC `ReadWriteMany` ou `hostPath`? | — | ✅ **respondida: `hostPath`** |
 | 4 | **Quem instala e o que quer ver?** | — | ✅ **RESPONDIDA 2026-11-18:** quem quer controle sobre os próprios dados, coleta simples e custo baixo. Quer **conversar com os próprios dados** — um chat. Ver ADR-014 |
-| 5 | LLM do chat: Ollama (já roda) ou vLLM (ADR-010)? | Onda 5.3 | antes de 5.3 |
+| 5 | LLM do chat: Ollama ou vLLM? | — | ✅ **respondida: vLLM. Ollama desabilitado (`scripts/desabilitar-ollama.sh`). ADR-015** |
 | 6 | Chat sem LLM é degradação ou modo primário? | Onda 5.3 | antes de 5.3 |
 
 **As quatro primeiras estão fechadas.** As duas novas são consequência direta da

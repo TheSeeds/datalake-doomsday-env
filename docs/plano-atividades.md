@@ -38,6 +38,27 @@
      registra acertos não serve para replanejar.
    - **Pendências explícitas** — o que ficou incompleto, com o bloqueio que
      isso cria. Nunca deixar pendência implícita: ela vira mentira por omissão.
+8. **Toda onda termina com `git push` — nos dois repositórios.** Documentação que
+   existe só na máquina de quem trabalhou não é documentação; é rascunho. Antes de
+   dizer "onda concluída":
+
+   ```bash
+   make ci-check          # tem que passar
+   git add -A && git commit && git push    # env: plano, README, charts, código
+   cd ../datalake-doomsday && git push     # conceito: ADRs, arquitetura, se mudou
+   ```
+
+   Checklist de documentação por onda — o que **não** pode ficar para depois:
+
+   | onde | o que atualizar |
+   |---|---|
+   | `docs/plano-atividades.md` | bloco de conclusão (§regra 7) + visão das ondas |
+   | `README.md` | tabela de ondas, estado, seção do que mudou |
+   | `docs/requisitos-sudo.md` | se a onda encontrou bloqueio de privilégio |
+   | `datalake-doomsday/docs/decisoes.md` (conceito) | ADR novo, se houve decisão |
+   | `datalake-doomsday/docs/arquitetura-v2.md` | correção, se a realidade divergiu |
+
+   Onda concluída sem push nos dois repos conta como **não concluída**.
 
 ---
 

@@ -18,16 +18,20 @@ decisões e plano de atividades — vive no repositório de conceito.
 
 ## Estado
 
-**Ondas 0, 1 e 2 concluídas.** O núcleo de domínio e o catálogo persistente
-funcionam; infraestrutura e cluster ainda **não existem**.
+**Ondas 0 a 3 concluídas.** O lake tem domínio, catálogo e cluster de pé
+armazenando objeto. O que ainda **não** existe é a ingestão ponta a ponta.
 
-| onda | estado |
-|---|---|
-| 0 — estrutura e CI | ✅ `make ci` verde sem cluster |
-| 1 — `lakecore` puro | ✅ `make ingest-demo`: 4 entradas → 2 objetos |
-| 2 — schema do catálogo | ✅ 59 testes em PostgreSQL real; migração reversível |
-| 3 — cluster mínimo | ⬜ próxima |
-| 4–7 | ⬜ |
+| onda | estado | prova |
+|---|---|---|
+| 0 — estrutura e CI | ✅ | `make ci` verde sem cluster |
+| 1 — `lakecore` puro | ✅ | `make ingest-demo`: 4 entradas → 2 objetos |
+| 2 — schema do catálogo | ✅ | 59 testes em PostgreSQL real; migração reversível |
+| 3 — cluster mínimo | ✅ | PUT/GET de 5 MiB com `sha256` conferindo; blocos em disco |
+| 4 — ingestão ponta a ponta | ⬜ próxima | arquivo → objeto **e** linha no catálogo |
+| 5–7 | ⬜ | |
+
+O plano completo, com o bloco de conclusão de cada onda, está em
+[`docs/plano-atividades.md`](docs/plano-atividades.md).
 
 ### `lakecore` — o coração
 
@@ -78,10 +82,35 @@ make ci         # SQLite + lint — não requer cluster, Docker nem rede
 make ci-full    # + PostgreSQL real (requer Docker)
 make ingest-demo      # prova o critério da Onda 1
 make migrate-up-down  # upgrade → downgrade → upgrade em PostgreSQL
+make cluster-verify   # critério da Onda 3: cluster com layout aplicado
 ```
 
 Nenhum arquivo de configuração tem credencial: a URL do banco vem sempre de
 `LAKECORE_DATABASE_URL`.
+
+## Cluster
+
+Instalado no microk8s existente (`zoio`), namespace `lake-data`:
+
+| componente | forma | persistência |
+|---|---|---|
+| Garage | DaemonSet + `hostPath` | `/var/lib/garage/{meta,data}` no nó |
+| PostgreSQL | StatefulSet + PVC | `local-path`, 10 GiB |
+| backup | CronJob `pg_dump` | diário, para o bucket `backup/` |
+
+```bash
+make secrets    # gera os Secrets fora do Helm (nunca em values.yaml)
+make cluster    # helm upgrade --install
+make cluster-verify
+```
+
+**O Garage não armazena até o layout ser aplicado.** O Helm instala, mas não
+configura layout; sem ele os pods ficam `Ready` e a escrita falha. O passo é
+`scripts/garage-layout.sh assign --apply` e depois `apply`.
+
+> **Limitação conhecida deste host:** `kubectl exec`, `logs` e `port-forward`
+> falham com `x509` porque o IP da máquina mudou e o certificado do apiserver não
+> acompanhou. `get` funciona. Correção: `sudo microk8s refresh-certs --cert ca.crt`.
 
 `make ci` roda sem Kubernetes, sem Garage e sem PostgreSQL. Isso é intencional:
 as ondas 0–2 rodam com o cluster desligado, porque o valor do projeto está no

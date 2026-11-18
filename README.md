@@ -18,8 +18,8 @@ decisões e plano de atividades — vive no repositório de conceito.
 
 ## Estado
 
-**Ondas 0 a 3 concluídas.** O lake tem domínio, catálogo e cluster de pé
-armazenando objeto. O que ainda **não** existe é a ingestão ponta a ponta.
+**Ondas 0 a 4 concluídas.** O lake **ingere** dado de verdade: arquivo entra,
+objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256`.
 
 | onda | estado | prova |
 |---|---|---|
@@ -27,8 +27,9 @@ armazenando objeto. O que ainda **não** existe é a ingestão ponta a ponta.
 | 1 — `lakecore` puro | ✅ | `make ingest-demo`: 4 entradas → 2 objetos |
 | 2 — schema do catálogo | ✅ | 59 testes em PostgreSQL real; migração reversível |
 | 3 — cluster mínimo | ✅ | PUT/GET de 5 MiB com `sha256` conferindo; blocos em disco |
-| 4 — ingestão ponta a ponta | ⬜ próxima | arquivo → objeto **e** linha no catálogo |
-| 5–7 | ⬜ | |
+| 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
+| 5 — consulta e dashboard | ⬜ próxima | |
+| 6–7 | ⬜ | |
 
 O plano completo, com o bloco de conclusão de cada onda, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).

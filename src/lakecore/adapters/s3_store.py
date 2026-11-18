@@ -21,6 +21,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from lakecore.errors import StorageUnavailableError
 from lakecore.models import ObjectRef
 
 log = logging.getLogger(__name__)
@@ -61,12 +62,28 @@ class S3ObjectStore:
         log.info("objeto gravado", extra={"bucket": ref.bucket, "key": ref.key})
 
     def exists(self, bucket: str, key: str) -> bool:
+        """Verifica presença. **Exige credencial com leitura.**
+
+        Levanta `StorageUnavailableError` quando o storage responde 403: com
+        chave write-only não há como distinguir "não existe" de "não posso ver",
+        e devolver `False` seria mentir — foi exatamente isso que produziu o
+        HTTP 500 na primeira ingestão real.
+
+        A ingestão **não** chama este método (ADR-013). Ele existe para
+        verificação com credencial de leitura e para o `restore drill`.
+        """
         try:
             self._client.head_object(Bucket=bucket, Key=key)
         except ClientError as exc:
             codigo = exc.response.get("Error", {}).get("Code", "")
             if codigo in {"404", "NoSuchKey", "NotFound"}:
                 return False
+            if codigo in {"403", "AccessDenied"}:
+                raise StorageUnavailableError(
+                    f"storage negou leitura de {bucket}/{key}: credencial "
+                    "write-only não distingue 'ausente' de 'sem permissão'. "
+                    "Use credencial com permissão R para verificar."
+                ) from exc
             raise
         return True
 

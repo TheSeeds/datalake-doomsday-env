@@ -30,6 +30,13 @@ class FakeObjectStore:
         self.objetos[(ref.bucket, ref.key)] = data
 
     def exists(self, bucket: str, key: str) -> bool:
+        """Presença no fake.
+
+        A ingestão **não** chama isto (ADR-013); existe para testes que querem
+        afirmar o efeito da escrita. O fake tem leitura porque é memória, não
+        storage com política — o que ele não pode fazer é dar a impressão de que
+        a ingestão depende desta checagem.
+        """
         return (bucket, key) in self.objetos
 
 

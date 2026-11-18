@@ -47,12 +47,19 @@ def main() -> int:
     )
 
     if not DROP_DIR.is_dir():
-        log.error("diretório de drop não existe: %s", DROP_DIR)
-        return 2
+        # Diretório ausente não é falha de negócio: é configuração. Devolver
+        # erro faz o CronJob acumular `Failed` a cada 5 min por um motivo que
+        # não tem nada a ver com o dado. Criar e seguir é o comportamento útil.
+        log.warning("diretório de drop não existe, criando: %s", DROP_DIR)
+        try:
+            DROP_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log.error("não consegui criar %s: %s", DROP_DIR, exc)
+            return 2
 
     arquivos = [p for p in sorted(DROP_DIR.rglob("*")) if p.is_file()]
     if not arquivos:
-        log.info("drop vazio: %s", DROP_DIR)
+        log.info("drop vazio: %s (nada a fazer)", DROP_DIR)
         return 0
 
     log.info("processando %d arquivo(s) em %s", len(arquivos), DROP_DIR)

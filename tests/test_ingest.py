@@ -158,20 +158,36 @@ def test_arquivo_acima_do_limite_e_rejeitado(
         )
 
 
-def test_storage_que_nao_confirma_a_escrita_falha_fechado(
+def test_ingestao_nao_pergunta_ao_storage_se_o_objeto_existe(
     arquivo: Path, catalog: FakeCatalog, clock: FixedClock
 ) -> None:
-    """Storage aceita a chamada e perde o objeto → não pode catalogar.
+    """ADR-013: a ingestão **não** chama `exists()`.
 
-    O contrário produziria linha no catálogo apontando para objeto inexistente.
+    Duas razões, e as duas são de correção, não de estilo:
+
+    1. Com chave write-only, `exists()` recebe 403 — e 403 não distingue
+       "ausente" de "sem permissão".
+    2. É desnecessário: a chave é o `sha256` do conteúdo, então reescrever o
+       mesmo dado grava os mesmos bytes sobre a mesma chave.
+
+    Este teste falha se alguém reintroduzir a checagem — que é o objetivo.
     """
     store = FakeObjectStore()
-    store.put = lambda ref, data: None  # type: ignore[method-assign]
+    chamadas: list[str] = []
 
-    with pytest.raises(IntegrityMismatchError, match="não confirmou"):
-        _ingerir(arquivo, store=store, catalog=catalog, clock=clock)
+    def exists_proibido(bucket: str, key: str) -> bool:
+        chamadas.append(key)
+        raise AssertionError(
+            "ingestão não deve chamar exists() no storage (ADR-013)"
+        )
 
-    assert catalog.registros == {}, "nada deve ser catalogado se o objeto não existe"
+    store.exists = exists_proibido  # type: ignore[method-assign]
+
+    resultado = _ingerir(arquivo, store=store, catalog=catalog, clock=clock)
+
+    assert chamadas == [], "exists() foi chamado no caminho de ingestão"
+    assert resultado.duplicate is False
+    assert store.escritas == 1
 
 
 def test_arquivo_modificado_durante_ingestao_falha_fechado(

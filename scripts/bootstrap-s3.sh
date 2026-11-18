@@ -46,8 +46,13 @@ garage() {
   kc -n "${NAMESPACE}" exec "${pod}" -- /garage -c /etc/garage.toml "$@"
 }
 
-echo "== bucket =="
-garage bucket create "${BUCKET}" 2>/dev/null || echo "bucket ${BUCKET} já existe"
+echo "== buckets =="
+# `raw` guarda o dado bruto; `backup` guarda dump do catálogo. São separados
+# porque a política é oposta: `raw` nunca expira, `backup` tem retenção.
+for b in "${BUCKET}" backup; do
+  garage bucket create "${b}" 2>/dev/null && echo "bucket ${b} criado" \
+    || echo "bucket ${b} já existe"
+done
 
 echo "== chave =="
 # `key create` NÃO é idempotente: criar duas vezes gera duas chaves com o mesmo
@@ -93,3 +98,45 @@ garage bucket info "${BUCKET}" 2>/dev/null | sed 's/^/  /' || true
 echo
 echo "atenção: a chave é write-only. Verificar leitura com ela DEVE falhar —"
 echo "é o que prova que o papel está correto."
+
+# --- Chave de VERIFICAÇÃO (com leitura) --------------------------------------
+#
+# Por que duas chaves: a de `ingest` é write-only por política (ADR-011), e por
+# isso não consegue responder "o objeto está lá?" — `HeadObject` recebe 403 e 403
+# não distingue "ausente" de "sem permissão" (ADR-013).
+#
+# Separar as chaves resolve sem afrouxar a política: quem ingere não lê, quem
+# verifica não escreve. Uma credencial que faz as duas coisas é a que ninguém
+# consegue auditar.
+NOME_VERIF="lakecore-verify"
+
+echo
+echo "== chave de verificação (leitura) =="
+existentes_v="$(garage key list 2>/dev/null | awk -v n="${NOME_VERIF}" '$2 == n {print $1}')"
+
+if [[ -z "${existentes_v}" ]]; then
+  garage key create "${NOME_VERIF}" >/dev/null
+  echo "chave ${NOME_VERIF} criada"
+elif [[ "$(wc -w <<<"${existentes_v}")" -gt 1 ]]; then
+  die "existem várias chaves '${NOME_VERIF}': $(tr '\n' ' ' <<<"${existentes_v}"). Remova as sobras e rode de novo."
+else
+  echo "chave ${NOME_VERIF} já existe"
+fi
+
+ID_V="$(garage key list 2>/dev/null | awk -v n="${NOME_VERIF}" '$2 == n {print $1}')"
+garage bucket allow --read "${BUCKET}" --key "${ID_V}" >/dev/null
+# A chave de verificação também precisa ESCREVER em `backup/`: é ela que o Job
+# de backup usa para enviar o dump. Ler o acervo e escrever backup são papéis
+# compatíveis (nenhum dos dois altera `raw/`).
+garage bucket allow --read --write backup --key "${ID_V}" >/dev/null
+
+SECRET_V="$(garage key info "${ID_V}" --show-secret | awk '/Secret key:/ {print $3}')"
+
+if kc -n "${NAMESPACE}" get secret lakecore-s3-verify >/dev/null 2>&1; then
+  echo "lakecore-s3-verify já existe (mantido)"
+else
+  kc -n "${NAMESPACE}" create secret generic lakecore-s3-verify \
+    --from-literal=S3_ACCESS_KEY="${ID_V}" \
+    --from-literal=S3_SECRET_KEY="${SECRET_V}" >/dev/null
+  echo "lakecore-s3-verify criado"
+fi

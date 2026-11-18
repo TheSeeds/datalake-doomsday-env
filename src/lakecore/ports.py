@@ -21,11 +21,17 @@ class ObjectStore(Protocol):
     O papel `ingest` da arquitetura tem permissão **write-only** no prefixo
     `raw/`. Por isso `put` é obrigatório na porta e `get` é opcional: um
     ingestor não deve poder ler o acervo que ajudou a gravar.
+
+    **`exists` não faz parte do contrato** (ADR-013). Perguntar "o objeto já
+    está lá?" a um storage write-only recebe 403, e 403 não distingue "não
+    existe" de "não posso ver" — responder qualquer coisa seria mentir. Quem
+    sabe o que já foi ingerido é o **catálogo**, pelo `sha256`.
+
+    Implementações **podem** oferecer `exists` (útil para verificação com
+    credencial de leitura e para o `restore drill`), mas a ingestão não a usa.
     """
 
     def put(self, ref: ObjectRef, data: bytes) -> None: ...
-
-    def exists(self, bucket: str, key: str) -> bool: ...
 
 
 @runtime_checkable

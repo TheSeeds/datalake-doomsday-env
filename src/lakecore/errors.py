@@ -20,6 +20,15 @@ class IntegrityMismatchError(IngestError):
     """O hash calculado não corresponde ao esperado."""
 
 
+class StorageUnavailableError(IngestError):
+    """O storage recusou a operação por motivo que não é de conteúdo.
+
+    Existe para separar "não consegui escrever" de "escrevi e o conteúdo não
+    confere". Sem essa distinção, uma falha de credencial aparece como erro de
+    integridade e manda a investigação para o lugar errado.
+    """
+
+
 class DuplicateObjectError(IngestError):
     """O `sha256` já está no catálogo.
 

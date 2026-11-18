@@ -4,7 +4,7 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0, 1, 2 e 3 concluídas e verificadas no cluster.
+> **Status:** Ondas 0 a 4 concluídas. A ingestão ponta a ponta está provada no cluster.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -104,8 +104,8 @@ Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
-Onda 4  Ingestão ponta a ponta  ← A PROVA       🟡 código pronto, cluster bloqueado
-Onda 5  Consulta e dashboard                    ~2 sessões
+Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
+Onda 5  Consulta e dashboard                    ← próxima
 Onda 6  Backup e restore provado                ~1 sessão
 Onda 7  Bundle offline                          ~1-2 sessões
 ────────────────────────────────────────────────────────────
@@ -565,9 +565,31 @@ make ingest-demo
 **Risco.** Acoplar regra de negócio ao Job. Se a lógica não estiver em `lakecore`,
 da Onda 1, a Onda 4 está errada — voltar, não contornar.
 
-### 🟡 CÓDIGO PRONTO E TESTADO — 2026-11-18 — **BLOQUEADA NO CLUSTER**
+### ✅ CONCLUÍDA — 2026-11-18
 
-Onda **incompleta por bloqueio de infraestrutura**, não de implementação.
+**A prova do projeto, executada no cluster:**
+
+```bash
+# upload HTTP
+POST /uploads → HTTP 201
+{"sha256":"f56fd752...","key":"raw/teste-e2e/texto/2026/11/18/f56fd752...",
+ "size":27,"duplicate":false,"origem":"teste-e2e"}
+
+# segunda vez, mesmo arquivo
+{"sha256":"f56fd752...","duplicate":true}
+
+# catálogo
+SELECT count(*), origem, status FROM objects → 1 | teste-e2e | cataloged
+```
+
+**1 arquivo → 1 objeto + 1 linha. Rodar 2× → ainda 1.**
+
+E o backup também passou a funcionar no caminho:
+```
+dump ok: 2262 bytes
+INFO enviado: backup/postgres/d-20261118T114938Z.sql.gz
+Job: Complete 1/1
+```
 
 **O que está pronto e provado:**
 
@@ -594,7 +616,7 @@ S3_ENDPOINT=... LAKECORE_TEST_PG_URL=... make test-integration
    no storage, `duplicate=True` na segunda.
 3. **Objeto de 2 MiB gera bloco em disco** (não inlinado no LMDB como os <1 MiB).
 
-**BLOQUEIO — rede do cluster (P4 em `requisitos-sudo.md`):**
+**BLOQUEIO RESOLVIDO — era `firewalld`, não a rota blackhole.**
 
 ```
 blackhole 10.1.74.192/26     ← cobre TODOS os pods
@@ -605,10 +627,9 @@ calico-node: 1301 restarts, reiniciou 02:30 (durante refresh-certs)
 Pod → pod e Service → pod dão `No route to host`. `ClusterIP` funciona (DNAT),
 IP de pod não. `ingest-api` sobe mas não alcança o catálogo.
 
-**Pedido ao usuário:**
-```bash
-sudo microk8s stop && sudo microk8s start
-```
+**Resolvido por:** `sudo bash scripts/fix-firewalld-calico.sh` — o firewalld
+filtrava a cadeia `FORWARD` e as interfaces `cali*` não estavam na zona `trusted`.
+O restart do microk8s não resolvia porque o problema nunca foi do cluster.
 
 **Desvios do previsto:**
 
@@ -621,11 +642,13 @@ sudo microk8s stop && sudo microk8s start
 
 **Pendências explícitas:**
 
-- **O critério da onda não foi demonstrado no cluster.** Só no host, via
-  `port-forward`. A diferença importa: o teste prova o código, não a instalação.
-- **CronJob do `drop/` nunca executou** (`*/5` mas o cluster está sem rede).
-- **`ingest-api` está `0/1`**, em `CrashLoopBackOff` de leitura, porque o probe
-  falha ao não alcançar o Postgres — comportamento correto do probe.
+- **CronJob do `drop/` executou com sucesso mas com diretório vazio.** A porta
+  `drop/` não foi exercitada com arquivo real: `/var/lib/datalake/drop` é
+  `root:root` e o job roda como `10001`. Colocar arquivo ali exige root.
+  **É a única parte da onda sem prova ponta a ponta.**
+- **Migração do catálogo não é aplicada pelo chart.** O `objects` não existia no
+  cluster e o `/health` passava, porque só fazia `SELECT 1`. Foi necessário rodar
+  `alembic upgrade head` à mão. Fica para a Onda 6 (Job de migração).
 
 ---
 

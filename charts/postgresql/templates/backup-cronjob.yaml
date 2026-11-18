@@ -33,21 +33,37 @@ spec:
                 #: mesmo disco do original não é backup.
                 - name: GARAGE_S3_ENDPOINT
                   value: http://garage:3900
-                - name: GARAGE_RPC_SECRET
+                - name: S3_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: garage-rpc-secret
-                      key: GARAGE_RPC_SECRET
+                      name: lakecore-s3-verify
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lakecore-s3-verify
+                      key: S3_SECRET_KEY
                 - name: RETENTION_DAYS
                   value: {{ .Values.backup.retentionDays | quote }}
               command:
                 - /bin/sh
                 - -c
                 - |
+                  # `set -eu` sem `-x`: `-x` imprime o comando expandido, e o
+                  # `PGPASSWORD=... pg_dump ...` colocaria a senha no log do Job.
+                  # Durante o teste isso aconteceu de fato.
                   set -eu
                   ts=$(date -u +%Y%m%dT%H%M%SZ)
                   dump="/tmp/${POSTGRES_DB}-${ts}.sql.gz"
                   echo "iniciando dump de ${POSTGRES_DB}"
+                  # `pg_dump` NÃO lê POSTGRES_PASSWORD nem lê a env do servidor:
+                  # ele usa PGPASSWORD (ou .pgpass). Sem isso o Job falha com
+                  # "fe_sendauth: no password supplied" — e gerou um dump de 0
+                  # bytes, que o upload recusou (o guarda funcionou).
+                  #
+                  # `export` em vez de prefixo inline: assim a senha não aparece
+                  # na linha de comando visível em `ps` dentro do pod.
+                  export PGPASSWORD="${POSTGRES_PASSWORD}"
                   pg_dump --host={{ include "postgresql.fullname" . }} \
                           --username="${POSTGRES_USER}" \
                           --dbname="${POSTGRES_DB}" \
@@ -55,10 +71,14 @@ spec:
                   echo "dump gerado: $(wc -c < "${dump}") bytes"
                   # Falha fechado: um dump de 0 bytes não é backup.
                   test -s "${dump}"
-                  mc alias set lake "${GARAGE_S3_ENDPOINT}" \
-                     "${GARAGE_KEY_ID:-}" "${GARAGE_SECRET_KEY:-}" >/dev/null 2>&1 || true
-                  mc cp "${dump}" "lake/backup/postgres/" || \
-                     echo "AVISO: envio ao Garage falhou; dump em /tmp será perdido"
+                  # Upload por script Python (boto3): a imagem não tem `mc` nem
+                  # `aws` CLI. A chave é a de VERIFICAÇÃO, não a de ingest —
+                  # backup escreve em `backup/`, não em `raw/`.
+                  #
+                  # Sem `|| echo`: falha de upload tem que falhar o Job. Um dump
+                  # que só existe em /tmp e some no fim do pod não é backup.
+                  python3 /usr/local/bin/upload_s3.py "${dump}" "backup/postgres"
+                  echo "backup enviado"
                   echo "concluído"
               resources:
                 requests: {cpu: 50m, memory: 128Mi}

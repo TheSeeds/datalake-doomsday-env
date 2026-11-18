@@ -200,13 +200,24 @@ def ingest(
 def _gravar_verificando(
     *, store: ObjectStore, ref: ObjectRef, path: Path, sha256: str
 ) -> None:
-    """Grava o objeto e confirma que o storage guardou o que foi lido.
+    """Grava o objeto. **Não** pergunta ao storage se ele já existe.
 
-    A verificação é feita relendo o hash do que o store devolveu? Não — a porta
-    não expõe leitura por decisão de segurança (ADR-011). O que se verifica é que
-    o store aceitou a escrita e que o objeto existe na chave esperada; a
-    integridade do conteúdo é garantida pelo hash no caminho, e conferida de
-    verdade no `restore drill` (Onda 6).
+    ADR-013: `exists()` no storage é proibido no caminho de ingestão, por dois
+    motivos independentes:
+
+    1. **A chave de `ingest` é write-only** (ADR-011). `HeadObject` com essa
+       chave responde 403, e 403 significa "não posso ver" — não "não existe".
+       Tratar 403 como ausência era mentira: foi o que derrubou a primeira
+       ingestão real com HTTP 500.
+    2. **Não é necessário.** A chave é `sha256` do conteúdo: escrever de novo o
+       mesmo dado grava sobre a mesma chave, com os mesmos bytes. Idempotência
+       vem do endereçamento, não de uma checagem.
+
+    Quem responde "já existe?" é o **catálogo**, que tem o índice único em
+    `sha256` e é consultado antes desta função. O storage é o último a saber.
+
+    A verificação de integridade do conteúdo é feita relendo o storage no
+    `restore drill` (Onda 6), com credencial que tem leitura.
     """
     with path.open("rb") as handle:
         dados = handle.read()
@@ -219,11 +230,6 @@ def _gravar_verificando(
         )
 
     store.put(ref, dados)
-
-    if not store.exists(ref.bucket, ref.key):
-        raise IntegrityMismatchError(
-            f"storage não confirmou a escrita: {ref.bucket}/{ref.key}"
-        )
 
 
 def _metadados(*, path: Path, request: IngestRequest) -> dict[str, Any]:

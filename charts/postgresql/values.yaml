@@ -38,8 +38,11 @@ backup:
   #: Retenção em dias, aplicada pelo próprio Job ao final do dump.
   retentionDays: 30
   image:
-    repository: dxflrs/garage
-    tag: "v1.1.0"
+    # Imagem própria: `postgres:16` + `boto3`. Ver docker/backup/Dockerfile.
+    # A primeira versão usava a imagem do Garage (shell-less, sem `pg_dump`) e
+    # falhava em 100% das execuções sem ninguém ver.
+    repository: lakecore-backup
+    tag: "0.1.0"
 
 #: `pg_dump` acima; estas são as demais rotinas.
 maintenance:

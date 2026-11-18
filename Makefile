@@ -9,7 +9,8 @@ VENV_PY := $(VENV)/bin/python
 
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
 .PHONY: help setup ci ci-check ci-full test test-pg test-all lint lint-sh lint-yaml lint-helm \
-	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down clean
+	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
+	cluster cluster-verify cluster-down secrets clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -24,10 +25,14 @@ help:
 	@echo "  make test-pg    battery completa contra PostgreSQL real"
 	@echo "  make migrate    aplica as migrações (usa LAKECORE_DATABASE_URL)"
 	@echo "  make migrate-up-down  prova upgrade -> downgrade -> upgrade"
+	@echo "  make secrets    gera os Secrets do cluster (idempotente, fora do Helm)"
+	@echo "  make cluster    instala o lake no microk8s (exige addons)"
+	@echo "  make cluster-verify  critério de pronto da Onda 3"
+	@echo "  make cluster-down    remove o release"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: Onda 2. Domínio puro + catálogo persistente; cluster ainda não existe."
+	@echo "Estado: Onda 3. Charts escritos; cluster depende de addons (docs/requisitos-sudo.md)."
 
 setup: $(VENV_PY)
 
@@ -100,14 +105,17 @@ ingest-demo: setup
 
 lint-helm:
 	@if command -v $(HELM) >/dev/null 2>&1; then \
+		n=0; \
 		for chart in charts/*/; do \
 			[ -f "$$chart/Chart.yaml" ] || continue; \
+			n=$$((n+1)); \
 			echo "helm lint $$chart"; \
 			$(HELM) lint "$$chart" || exit 1; \
 		done; \
-		echo "helm: nenhum chart para lintar (ok)"; \
+		if [ "$$n" -eq 0 ]; then echo "helm: nenhum chart para lintar"; \
+		else echo "helm: $$n chart(s) ok"; fi; \
 	else \
-		echo "helm ausente (esperado no Onda 0)"; \
+		echo "helm ausente — usando 'microk8s helm3' ou instale helm"; exit 1; \
 	fi
 
 lint: setup lint-helm lint-sh lint-yaml
@@ -115,9 +123,9 @@ lint: setup lint-helm lint-sh lint-yaml
 lint-sh:
 	@scripts=$$(git ls-files '*.sh' 2>/dev/null || find . -name '*.sh' -not -path './.venv/*'); \
 	if [ -z "$$scripts" ]; then \
-		echo "shellcheck: nenhum script .sh ainda (Onda 3+)"; \
+		echo "shellcheck: nenhum script .sh"; \
 	else \
-		echo "shellcheck $$scripts"; \
+		echo "shellcheck: $$(echo $$scripts | wc -w) script(s)"; \
 		$(VENV)/bin/shellcheck $$scripts; \
 	fi
 
@@ -154,6 +162,34 @@ ci-check: setup
 		echo "!!! CI FALHOU (exit $$status) — NÃO fazer push !!!"; \
 		exit $$status; \
 	}
+
+# --- cluster (Onda 3) ---------------------------------------------------------
+# Exige `microk8s enable hostpath-storage` feito por você com sudo.
+# Ver docs/requisitos-sudo.md — o agente não pede a senha do sudo.
+
+HELM := microk8s helm3
+KUBECTL := microk8s kubectl
+NS_LAKE := lake-data
+RELEASE := datalake
+
+secrets:
+	scripts/gerar-secrets.sh --namespace $(NS_LAKE)
+
+cluster: secrets lint-helm
+	$(KUBECTL) get namespace $(NS_LAKE) >/dev/null 2>&1 || $(KUBECTL) create namespace $(NS_LAKE)
+	$(HELM) dependency update charts/datalake
+	$(HELM) upgrade --install $(RELEASE) charts/datalake \
+		--namespace $(NS_LAKE) --create-namespace --wait --timeout 10m
+	@echo ""
+	@echo "IMPORTANTE: o Garage sobe sem layout e NÃO armazena nada até:"
+	@echo "  scripts/garage-layout.sh assign --apply && scripts/garage-layout.sh apply"
+
+cluster-verify:
+	scripts/cluster-verify.sh
+
+cluster-down:
+	$(HELM) uninstall $(RELEASE) --namespace $(NS_LAKE) || true
+	@echo "release removido. PVs do hostpath NÃO foram apagados de propósito."
 
 clean:
 	rm -rf $(VENV) .pytest_cache

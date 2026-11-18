@@ -1,0 +1,36 @@
+apiVersion: v2
+name: datalake
+description: |
+  Ambiente instalável do datalake-doomsday — umbrella chart.
+
+  Agrega os componentes do lake (object store, catálogo, ingestão) e é o único
+  artefato que precisa ser instalado. Os charts de cada componente podem ser
+  usados sozinhos, mas o caminho suportado é este.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - datalake
+  - offline
+  - preservation
+home: https://github.com/TheSeeds/datalake-doomsday
+sources:
+  - https://github.com/TheSeeds/datalake-doomsday-env
+
+maintainers:
+  - name: TheSeeds
+
+# Os componentes são instalados condicionalmente por `values-*.yaml`.
+dependencies:
+  - name: postgresql
+    version: 0.1.0
+    repository: "file://../postgresql"
+    condition: postgresql.enabled
+  - name: garage
+    version: 0.1.0
+    repository: "file://../garage"
+    condition: garage.enabled
+  - name: ingest
+    version: 0.1.0
+    repository: "file://../ingest"
+    condition: ingest.enabled

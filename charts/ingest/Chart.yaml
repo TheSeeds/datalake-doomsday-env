@@ -1,0 +1,11 @@
+apiVersion: v2
+name: ingest
+description: |
+  Portas de entrada do lake.
+
+  Placeholder da Onda 4: o chart existe agora para que o umbrella resolva a
+  dependência, mas `ingest.enabled` é `false` por padrão. Nada aqui foi provado
+  ainda — e chart não provado não deve ligar por default.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

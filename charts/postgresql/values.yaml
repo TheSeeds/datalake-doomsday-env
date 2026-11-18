@@ -1,0 +1,47 @@
+# PostgreSQL — catálogo do lake.
+
+image:
+  repository: postgres
+  #: Major pinado. Subir major exige `pg_upgrade`; não é mudança de values.
+  tag: "16"
+  pullPolicy: IfNotPresent
+
+#: `shared_buffers` derivado do engine tier: 25% da RAM disponível é a regra
+#: usual do PostgreSQL, e acima disso o ganho é marginal.
+tier: standard
+resources:
+  micro:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+    sharedBuffers: 256MB
+  standard:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 3Gi}
+    sharedBuffers: 512MB
+
+persistence:
+  size: 10Gi
+  #: Vazio = storageclass padrão do cluster (microk8s-hostpath na Onda 3).
+  storageClass: ""
+
+auth:
+  #: Nome da Secret com POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB.
+  #: Criada fora do chart: credencial gerada pelo Helm vaza em `helm get values`.
+  existingSecret: lakecore-db-secret
+  database: lakecore
+
+backup:
+  enabled: true
+  #: Diário às 03:00. `pg_dump` não é backup contínuo — é o que se testa em
+  #: 5 minutos. O restore drill (Onda 6) é o que prova que serve.
+  schedule: "0 3 * * *"
+  #: Retenção em dias, aplicada pelo próprio Job ao final do dump.
+  retentionDays: 30
+  image:
+    repository: dxflrs/garage
+    tag: "v1.1.0"
+
+#: `pg_dump` acima; estas são as demais rotinas.
+maintenance:
+  #: `VACUUM ANALYZE` semanal. `VACUUM FULL` NUNCA: trava a tabela inteira.
+  vacuumSchedule: "0 4 * * 0"

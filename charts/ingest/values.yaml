@@ -1,0 +1,18 @@
+# Ingestão — desligado por padrão (Onda 4).
+#
+# Quando ligar, estes são os valores que a Onda 4 vai precisar decidir:
+#   - `drop.enabled`: PVC ReadWriteMany custa caro em microk8s; hostPath é a
+#     alternativa. Decisão adiada até existir o primeiro caso de uso real.
+#   - `replicas`: 1 no perfil micro/standard.
+
+enabled: false
+
+image:
+  repository: ghcr.io/theseeds/datalake-ingest
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+drop:
+  enabled: true
+  #: hostPath porque ReadWriteMany não está disponível no perfil de 1 nó.
+  path: /var/lib/datalake/drop

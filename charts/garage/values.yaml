@@ -1,0 +1,71 @@
+# Garage — valores padrão.
+#
+# O `replication_factor` é a decisão mais cara deste chart e NÃO pode ser mudado
+# com dado dentro (exige recriar o layout e rebalancear tudo, com
+# indisponibilidade). Ver ADR-005.
+#
+#   1 = sem redundância. Um nó morto = dado indisponível. **Lake de preparação.**
+#   2 = tolera 1 falha; leitura continua, escrita falha.
+#   3 = tolera 2 falhas; exige 3 nós.
+
+replicaCount: 1
+
+image:
+  repository: dxflrs/garage
+  # Pinar por tag E digest. Tag sozinha pode ser reescrita; digest não.
+  tag: "v1.1.0"
+  pullPolicy: IfNotPresent
+
+#: Perfil de implantação. `micro` usa 1 nó, `standard`/`cluster` crescem.
+garage:
+  replicationFactor: 1
+  #: Identificador da zona de falha. Numa única máquina, tudo é "dc1".
+  #: Com vários nós, dê nomes diferentes por máquina (dc1, dc2, ...).
+  zone: dc1
+  #: Capacidade anunciada ao cluster, por nó. Deve refletir espaço REAL livre,
+  #: não o tamanho do PVC — Garage não descobre isso sozinho.
+  capacity: 400G
+  #: Banco de metadados. LMDB é o padrão e o mais testado.
+  dbEngine: lmdb
+  #: Tamanho de bloco. 10M é recomendado para arquivos grandes em rede rápida.
+  blockSize: 1M
+  #: Segredo de RPC entre nós. Vem de Secret; nunca do values.
+  rpcSecretName: garage-rpc-secret
+
+persistence:
+  #: Pode ser mudado para qualificar por nó via hostPath abaixo.
+  hostPath: true
+  meta:
+    path: /var/lib/garage/meta
+    size: 5Gi
+  data:
+    path: /var/lib/garage/data
+
+service:
+  type: ClusterIP
+  s3:
+    port: 3900
+  admin:
+    #: Admin NÃO é exposto por Service: estado inconsistente entre nós.
+    #: Acesso só por `kubectl exec`. E o chart oficial faz o mesmo.
+    enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    #: `block_ram_buffer_max` default é 256Mi; o limite precisa comportar
+    #: buffers de recepção além disso ou o processo é morto sob carga.
+    memory: 1Gi
+
+#: Buckets criados no primeiro start. O `raw` é imutável por política.
+buckets:
+  - name: raw
+    #: Nunca expira. É o ativo do lake.
+    retention: forever
+  - name: derived
+    #: Regenerável: pode ser apagado inteiro sem perda.
+    retention: discardable
+  - name: backup
+    retention: 30d

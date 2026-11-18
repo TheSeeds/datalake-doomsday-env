@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "garage.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "garage.labels" . | nindent 4 }}
+data:
+  #: Segredos NÃO entram aqui. `rpc_secret` e `admin_token` são lidos das
+  #: variáveis de ambiente `GARAGE_RPC_SECRET` e `GARAGE_ADMIN_TOKEN`, que vêm
+  #: de Secret por `envFrom`. ConfigMap é legível por qualquer pod do namespace;
+  #: credencial não mora nele.
+  #:
+  #: `kubernetes_discovery` fica de fora de propósito: com DaemonSet o layout é
+  #: aplicado explicitamente por `scripts/garage-layout.sh`. Descoberta
+  #: automática + layout manual é combinação que confunde, não ajuda.
+  garage.toml: |
+    metadata_dir = "{{ .Values.persistence.meta.path }}"
+    data_dir = "{{ .Values.persistence.data.path }}"
+    db_engine = "{{ .Values.garage.dbEngine }}"
+
+    replication_factor = {{ .Values.garage.replicationFactor }}
+
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    block_size = "{{ .Values.garage.blockSize }}"
+
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "[::]:3900"
+
+    [admin]
+    #: Loopback: o admin não é alcançável de outro pod. Operação é por
+    #: `kubectl exec`. Expor o admin na rede é dar controle total do lake
+    #: a qualquer pod comprometido.
+    api_bind_addr = "127.0.0.1:3903"

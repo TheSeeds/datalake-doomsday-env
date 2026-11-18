@@ -1,0 +1,12 @@
+apiVersion: v2
+name: postgresql
+description: |
+  PostgreSQL como catálogo do lake.
+
+  StatefulSet de 1 réplica + CronJob de pg_dump. Escolha deliberada contra
+  CloudNativePG na v1: o schema é agnóstico e CNPG pode ser adotado depois sem
+  migrar dados, só o operador. Operador agora custaria complexidade sem servir
+  a nenhuma pergunta que o lake ainda precisa responder.
+type: application
+version: 0.1.0
+appVersion: "16"

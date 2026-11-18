@@ -1,0 +1,12 @@
+apiVersion: v2
+name: garage
+description: |
+  Garage (Deuxfleurs) como object store S3 do lake.
+
+  DaemonSet com hostPath: todo nó do cluster recebe uma instância, e adicionar
+  capacidade passa a ser "adicionar nó". O layout do cluster NÃO é configurado
+  aqui — é passo explícito no `scripts/garage-layout.sh`, porque o Helm não
+  consegue rodar `layout apply`.
+type: application
+version: 0.1.0
+appVersion: "v1.1.0"

@@ -1,0 +1,9 @@
+{{- /*
+Chart sem templates de propósito.
+
+A Onda 4 entrega a ingestão; até lá, ter manifest aqui seria YAML não exercitado
+— e manifest não exercitado é manifest quebrado com aparência de pronto.
+O `values.yaml` documenta o que precisa ser decidido em vez de fingir que já foi.
+
+O arquivo `NOT_YET.md` (não `.yaml`) evita que o Helm o interprete como template.
+*/ -}}

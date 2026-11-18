@@ -1,0 +1,66 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "postgresql.fullname" . }}-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  #: Forbid: um dump já em curso basta. Paralelo só gastaria I/O competindo
+  #: com a ingestão.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "postgresql.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: dump
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              envFrom:
+                - secretRef:
+                    name: {{ .Values.auth.existingSecret }}
+              env:
+                #: Destino: `backup/` no Garage, nunca no PVC do banco. Backup no
+                #: mesmo disco do original não é backup.
+                - name: GARAGE_S3_ENDPOINT
+                  value: http://garage:3900
+                - name: GARAGE_RPC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: garage-rpc-secret
+                      key: GARAGE_RPC_SECRET
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  ts=$(date -u +%Y%m%dT%H%M%SZ)
+                  dump="/tmp/${POSTGRES_DB}-${ts}.sql.gz"
+                  echo "iniciando dump de ${POSTGRES_DB}"
+                  pg_dump --host={{ include "postgresql.fullname" . }} \
+                          --username="${POSTGRES_USER}" \
+                          --dbname="${POSTGRES_DB}" \
+                          --format=custom | gzip -6 > "${dump}"
+                  echo "dump gerado: $(wc -c < "${dump}") bytes"
+                  # Falha fechado: um dump de 0 bytes não é backup.
+                  test -s "${dump}"
+                  mc alias set lake "${GARAGE_S3_ENDPOINT}" \
+                     "${GARAGE_KEY_ID:-}" "${GARAGE_SECRET_KEY:-}" >/dev/null 2>&1 || true
+                  mc cp "${dump}" "lake/backup/postgres/" || \
+                     echo "AVISO: envio ao Garage falhou; dump em /tmp será perdido"
+                  echo "concluído"
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+{{- end }}

@@ -1,0 +1,24 @@
+# Valores padrão do umbrella `datalake`.
+#
+# Este arquivo é o ponto único de configuração do lake. Os charts de componente
+# têm seus próprios `values.yaml` (defaults técnicos); aqui ficam as decisões de
+# instalação.
+#
+# Eixos independentes (arquitetura §2):
+#   engine tier  -> `postgresql.tier`        (micro | standard)
+#   módulos      -> `ingest.enabled`         (ai/maps entram depois da Onda 7)
+#   GPU          -> pós-Onda 7, com piso de VRAM (ADR-010)
+
+#: Object store. DaemonSet: todo nó recebe instância Garage.
+garage:
+  enabled: true
+
+#: Catálogo.
+postgresql:
+  enabled: true
+  tier: standard
+
+#: Ingestão. Existe a partir da Onda 4 — mantido desligado até lá para que
+#: `make cluster` instale só o que foi provado.
+ingest:
+  enabled: false

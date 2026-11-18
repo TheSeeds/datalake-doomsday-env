@@ -4,7 +4,8 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** aprovado como plano. Ondas 0, 1 e 2 concluídas.
+> **Status:** Ondas 0, 1 e 2 concluídas. Onda 3 escrita e bloqueada
+> por passo que exige `sudo` (ver `requisitos-sudo.md`).
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -47,7 +48,7 @@
 Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
-Onda 3  Cluster mínimo de pé                    ← próxima
+Onda 3  Cluster mínimo de pé                    🟡 escrita, bloqueada por sudo
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ~1-2 sessões
 Onda 5  Consulta e dashboard                    ~2 sessões
 Onda 6  Backup e restore provado                ~1 sessão
@@ -344,6 +345,72 @@ vazio, e existe um teste que simula o layout ausente.
 
 **Decisão obrigatória antes da Onda 4:** `rf=1` (single-node, sem redundância)
 ou aguardar 3 nós. Ver §4.1 da arquitetura.
+
+### 🟡 ESCRITA E VALIDADA ESTATICAMENTE — 2026-11-18 — **NÃO CONCLUÍDA**
+
+Onda **incompleta de propósito**, e o motivo é externo ao código.
+
+**Decisões tomadas (as três confirmadas):**
+
+| decisão | escolha |
+|---|---|
+| PostgreSQL | **StatefulSet** + CronJob `pg_dump`; CNPG fica para depois, sem migrar dado |
+| Garage `replication_factor` | **`rf=1`** agora, registrado como "lake de preparação" |
+| Cluster | **microk8s existente** (`zoio`, v1.31.14, verificado vazio) |
+
+**O que está pronto:**
+
+| artefato | estado |
+|---|---|
+| `charts/garage` | ✅ `helm lint` ok, `--dry-run=client` ok, DaemonSet + hostPath |
+| `charts/postgresql` | ✅ StatefulSet + CronJob de backup, `shared_buffers` por tier |
+| `charts/datalake` | ✅ umbrella; 4 charts lintam |
+| `charts/ingest` | ✅ placeholder, `enabled: false` |
+| `scripts/gerar-secrets.sh` | ✅ idempotente, fora do Helm |
+| `scripts/garage-layout.sh` | ✅ `assign` é dry-run por padrão |
+| `scripts/cluster-verify.sh` | ✅ falha no caso "pod Ready, layout vazio" |
+| `docs/requisitos-sudo.md` | ✅ o que só você pode rodar |
+
+**Prova do que foi provado:**
+```bash
+make ci-check     # 4 charts lintados, 3 scripts shellcheck, 59 testes
+microk8s helm3 template lake charts/datalake | microk8s kubectl apply --dry-run=client -f -
+```
+
+**BLOQUEIO — exige `sudo` com senha:**
+```bash
+microk8s enable hostpath-storage
+```
+Sem `storageclass`, o PVC do PostgreSQL nunca sai de `Pending`. Um agente que
+pede a senha do `sudo` para "só rodar um comando" abre um precedente que não
+deve existir — então o passo é seu, em `docs/requisitos-sudo.md`.
+
+**O que NÃO está provado (e é o critério de pronto):**
+
+- os charts **sobem** de verdade no cluster
+- o Garage, com layout aplicado, **armazena** objeto
+- o PostgreSQL persiste entre restarts
+
+Charts com `lint` verde e `dry-run` verde **não são** chart funcionando. Registrar
+isso como concluído seria repetir o pecado do `estado-validado.md`.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| `make verify-storage` | alvo real é `make cluster-verify` |
+| Garage via Helm chart oficial | chart próprio, sem dependência de repo externo — o oficial exige CRDs e não fixa `DaemonSet` para 1 nó |
+| `status` só no catálogo | agora há também `scripts/gerar-secrets.sh`: credencial gerada pelo Helm vaza em `helm get values` |
+| — | `yamllint` não pode validar template Helm (`{{ }}` é Go-template). Excluído; `helm lint` cobre |
+
+**Correções aplicadas durante a onda:**
+
+1. `garage.toml` inventado com chave inexistente — corrigido contra a doc oficial; segredos passam por `GARAGE_RPC_SECRET`/`GARAGE_ADMIN_TOKEN` (env), não pelo ConfigMap.
+2. `lint-helm` e `lint-sh` imprimiam "nenhum chart/script" mesmo com 4 e 3 — mensagem que mentia sobre o que foi verificado.
+3. `yamllint` barrava `#:comentário` de `values.yaml`; regra ajustada explicando por que a convenção existe.
+
+**Para desbloquear:** rode o Passo 1 de `docs/requisitos-sudo.md` e eu executo
+`make cluster && make cluster-verify`.
 
 ---
 

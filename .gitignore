@@ -40,3 +40,7 @@ backup/
 # Banco local de desenvolvimento do catálogo (nunca versionar)
 *.db
 .dev-catalog.db
+
+# Charts vendorizados do umbrella (gerados por `helm dependency update`)
+charts/*/charts/
+charts/*/Chart.lock

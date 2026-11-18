@@ -1,0 +1,118 @@
+{{- /*
+DaemonSet, não StatefulSet.
+
+Motivo: o modelo do projeto é "adicionar nó = adicionar capacidade". Com
+DaemonSet, todo nó novo já recebe uma instância Garage; falta apenas o
+`garage layout assign` + `apply`, que é passo explícito.
+
+Com StatefulSet seria preciso dimensionar réplicas e afinidade manualmente a
+cada nó — e esquecer resultaria em nó sem storage, silenciosamente.
+*/ -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "garage.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "garage.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "garage.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      #: 1 de cada vez: atualizar o cluster inteiro de uma vez num lake com
+      #: dado dentro é risco desnecessário.
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "garage.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: garage
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/garage", "-c", "/etc/garage.toml", "server"]
+          ports:
+            - name: s3
+              containerPort: 3900
+              protocol: TCP
+            - name: rpc
+              containerPort: 3901
+              protocol: TCP
+          env:
+            - name: GARAGE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          envFrom:
+            #: `GARAGE_RPC_SECRET` e `GARAGE_ADMIN_TOKEN`. O Secret é criado
+            #: pelo `install.sh` (ou por você), nunca pelo chart: credencial
+            #: gerada pelo chart acabaria no `helm get values`.
+            - secretRef:
+                name: {{ .Values.garage.rpcSecretName }}
+                optional: false
+          readinessProbe:
+            #: RPC, não S3: o processo responde em RPC assim que sobe, mas o S3
+            #: só funciona depois que o layout existe. Sondar o S3 faria o pod
+            #: parecer quebrado num cluster recém-instalado.
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: meta
+              mountPath: {{ .Values.persistence.meta.path }}
+            - name: data
+              mountPath: {{ .Values.persistence.data.path }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "garage.fullname" . }}-config
+        {{- if .Values.persistence.hostPath }}
+        #: hostPath: adicionar nó adiciona capacidade automaticamente, e o disco
+        #: fica fora do ciclo de vida do pod — o desejado para o dado bruto, e o
+        #: inverso de um volume efêmero.
+        - name: meta
+          hostPath:
+            path: {{ .Values.persistence.meta.path }}
+            type: DirectoryOrCreate
+        - name: data
+          hostPath:
+            path: {{ .Values.persistence.data.path }}
+            type: DirectoryOrCreate
+        {{- else }}
+        - name: meta
+          persistentVolumeClaim:
+            claimName: {{ include "garage.fullname" . }}-meta
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "garage.fullname" . }}-data
+        {{- end }}

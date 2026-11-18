@@ -3,6 +3,11 @@ extends: default
 rules:
   line-length: disable
   comments-indentation: disable
+  # Comentario "#:" e valido em values.yaml (distingue "campo de values" de
+  # "nota para humano"). A regra quer "# ", que quebraria essa convencao.
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: false
   document-start: disable
   # `on:` do GitHub Actions é lido como booleano no YAML 1.1; sem isto, todo
   # workflow gera warning falso.
@@ -13,3 +18,8 @@ rules:
 ignore: |
   charts/*/charts/
   .venv/
+  # Templates Helm sao Go-template, nao YAML: `{{ }}` e sintaxe de template e
+  # o arquivo pode comecar com `{{- /* comentario */ -}}`, que o yamllint le
+  # como erro de sintaxe. Quem valida template e o `helm lint`.
+  charts/*/templates/
+  charts/*/Chart.yaml

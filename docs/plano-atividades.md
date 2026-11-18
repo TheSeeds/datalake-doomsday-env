@@ -4,7 +4,10 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 e 5.3 prontas).
+> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 e 5.3 prontas;
+> 5.2/5.4/5.5 abertas). Onda 6 parcial: o backup estava quebrado e foi
+> consertado, e o restore foi provado em banco novo — falta `make restore-drill`.
+> Onda 7 não começou.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -122,9 +125,9 @@ Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
-Onda 5  Conversar com os dados (chat)           🟢 5.1 e 5.3 feitas
-Onda 6  Backup e restore provado                ~1 sessão
-Onda 7  Bundle offline                          ~1-2 sessões
+Onda 5  Conversar com os dados (chat)           🟢 5.1 e 5.3 feitas; 5.2/5.4/5.5 abertas
+Onda 6  Backup e restore provado                🟢 6.1 feita (restore provado); falta automatizar
+Onda 7  Bundle offline                          ⬜ não começou  ~1-2 sessões
 ────────────────────────────────────────────────────────────
 Total                              ~9-11 sessões de trabalho
 ```

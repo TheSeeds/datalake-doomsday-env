@@ -8,13 +8,14 @@ VENV := .venv
 VENV_PY := $(VENV)/bin/python
 
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
-.PHONY: help setup ci test lint lint-sh lint-yaml lint-helm ingest-demo clean
+.PHONY: help setup ci ci-check test lint lint-sh lint-yaml lint-helm ingest-demo clean
 
 help:
 	@echo "datalake-doomsday-env"
 	@echo ""
 	@echo "  make setup      cria .venv e instala ferramentas de dev"
 	@echo "  make ci         validação completa (não requer cluster)"
+	@echo "  make ci-check   igual a ci, mas falha o shell se algo falhar (use em push/CI)"
 	@echo "  make test       testes unitários do lakecore"
 	@echo "  make ingest-demo  prova o critério da Onda 1 (2x o mesmo arquivo → 1)"
 	@echo "  make lint       shellcheck + helm lint"
@@ -85,6 +86,18 @@ ci: test lint
 	@PYTHONPATH=src $(VENV)/bin/python -c "import lakecore; print('lakecore importável:', lakecore.__file__)"
 	@echo ""
 	@echo "CI concluído com sucesso."
+
+# `make ci | tail` faz o shell enxergar o exit code do `tail`, não o do `make`:
+# um CI vermelho passava despercebido atrás de um pipe. Este alvo existe para
+# ser o único gate de push.
+ci-check: setup
+	@set -o pipefail; \
+	$(MAKE) --no-print-directory ci 2>&1 || { \
+		status=$$?; \
+		echo ""; \
+		echo "!!! CI FALHOU (exit $$status) — NÃO fazer push !!!"; \
+		exit $$status; \
+	}
 
 clean:
 	rm -rf $(VENV) .pytest_cache

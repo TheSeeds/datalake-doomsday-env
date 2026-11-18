@@ -131,11 +131,29 @@ make ingest-demo
 - **Hash e tamanho na mesma passagem.** Tamanho vem da leitura, não de `stat()`,
   porque entre o `stat` e a leitura o arquivo pode mudar.
 
-**Correção de rota durante a onda.** O primeiro `make ingest-demo` repetia a
-injeção em duas invocações separadas da CLI. Como os adaptadores são em memória,
-cada processo começa vazio — o demo mostrava `ACEITO` na segunda passagem e
-dizia o contrário do que queria provar. O código estava certo; o alvo do Make
-estava errado. Agora a prova inteira acontece **numa única invocação**.
+**Duas correções de rota durante a onda.**
+
+1. O primeiro `make ingest-demo` repetia a injeção em duas invocações separadas da
+   CLI. Como os adaptadores são em memória, cada processo começa vazio — o demo
+   mostrava `ACEITO` na segunda passagem e dizia o contrário do que queria provar.
+   Agora a prova inteira acontece **numa única invocação**.
+
+2. **Defeito real de API, encontrado porque um teste falhou.** O módulo
+   `lakecore.ingest` e a função `lakecore.ingest` tinham o mesmo nome. Ao
+   reexportar a função no `__init__.py`, o módulo passava a ser **sombreado pela
+   própria função**: `import lakecore.ingest as modulo` devolvia a função, e
+   qualquer `monkeypatch` no módulo não tinha efeito — o teste de integridade
+   "passava" patcheando o objeto errado. Módulo renomeado para
+   `lakecore/ingestion.py`; a função continua `ingest()`.
+
+   A lição é de processo, não de Python: **um teste que não pode falhar é pior
+   que teste ausente**, porque produz confiança. Foi o `monkeypatch` correto que
+   expôs a colisão de nomes.
+
+**Incidente de processo.** O commit da Onda 1 foi enviado com `make ci` vermelho:
+`make ci 2>&1 | tail` fez o `&&` enxergar o exit code do `tail`, não o do `make`.
+Corrigido no Makefile com um alvo `ci-check` que usa `set -o pipefail` e não deixa
+falha passar. Regra nova: **nenhum push sem `ci-check` verde**.
 
 **Não incluído, deliberadamente:** adaptador de storage real, adaptador de
 catálogo real, HTTP, e qualquer coisa que exija cluster. Isso é Onda 2 e 3.

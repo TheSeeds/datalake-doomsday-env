@@ -17,7 +17,8 @@ import pytest
 
 from lakecore import IngestRequest, IntegrityMismatchError, UnsupportedObjectError
 from lakecore.fakes import FakeCatalog, FakeObjectStore, FixedClock
-from lakecore.ingest import classify, hash_file, ingest
+from lakecore import ingestion as modulo
+from lakecore.ingestion import classify, hash_file, ingest
 
 CONTEUDO = b"datalake-doomsday: o dado bruto e o ativo\n"
 
@@ -174,7 +175,11 @@ def test_storage_que_nao_confirma_a_escrita_falha_fechado(
 
 
 def test_arquivo_modificado_durante_ingestao_falha_fechado(
-    arquivo: Path, store: FakeObjectStore, catalog: FakeCatalog, clock: FixedClock
+    arquivo: Path,
+    store: FakeObjectStore,
+    catalog: FakeCatalog,
+    clock: FixedClock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Protege contra arquivo alterado entre o hash e a escrita."""
     original = hash_file
@@ -184,14 +189,10 @@ def test_arquivo_modificado_durante_ingestao_falha_fechado(
         path.write_bytes(b"conteudo diferente")
         return resultado
 
-    import lakecore.ingest as modulo
+    monkeypatch.setattr(modulo, "hash_file", hash_e_modifica)
 
-    modulo.hash_file = hash_e_modifica  # type: ignore[assignment]
-    try:
-        with pytest.raises(IntegrityMismatchError, match="mudou entre o hash"):
-            _ingerir(arquivo, store=store, catalog=catalog, clock=clock)
-    finally:
-        modulo.hash_file = original  # type: ignore[assignment]
+    with pytest.raises(IntegrityMismatchError, match="mudou entre o hash"):
+        _ingerir(arquivo, store=store, catalog=catalog, clock=clock)
 
 
 # --- derivados ------------------------------------------------------------------

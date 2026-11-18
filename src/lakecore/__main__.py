@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from lakecore.fakes import FakeCatalog, FakeObjectStore, FixedClock
-from lakecore.ingest import ingest
+from lakecore.ingestion import ingest
 from lakecore.models import IngestRequest
 
 

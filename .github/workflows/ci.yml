@@ -9,12 +9,13 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
+  PG_SERVICE_URL: postgresql+psycopg://lakecore:teste123@127.0.0.1:5432/lakecore
 
 jobs:
-  # Roda sem cluster, sem Garage, sem PostgreSQL.
-  # As ondas 0-2 precisam ficar verdes com a infraestrutura desligada.
+  # SQLite em memória: rápido, sem serviço. É o piso que precisa ficar verde
+  # sempre, inclusive em máquina de contribuidor sem Docker.
   unit:
-    name: lakecore (sem infra)
+    name: lakecore (SQLite)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,17 +24,58 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Cache do virtualenv
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: .venv
           key: venv-${{ env.PYTHON_VERSION }}-${{ hashFiles('requirements*.txt') }}
 
-      - name: make ci
-        run: make ci
+      - name: Testes (sem PostgreSQL)
+        run: make test
 
-  # Valida que o Helm chart de um módulo/estado atual não quebrou.
-  # Enquanto não houver chart, o alvo reporta e passa.
+  # O alvo real. SQLite e PostgreSQL divergem em JSONB, GIN, CHECK e ALTER
+  # COLUMN — testar só em SQLite esconde exatamente o que quebra no cluster.
+  postgres:
+    name: lakecore + catálogo (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: lakecore
+          POSTGRES_USER: lakecore
+          POSTGRES_PASSWORD: teste123
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-pg-${{ env.PYTHON_VERSION }}-${{ hashFiles('requirements*.txt') }}
+
+      - name: Suíte completa contra PostgreSQL
+        env:
+          LAKECORE_TEST_PG_URL: ${{ env.PG_SERVICE_URL }}
+        run: make test
+
+      - name: Ciclo de migração upgrade -> downgrade -> upgrade
+        env:
+          LAKECORE_DATABASE_URL: ${{ env.PG_SERVICE_URL }}
+        run: |
+          PYTHONPATH=src .venv/bin/alembic upgrade head
+          PYTHONPATH=src .venv/bin/alembic downgrade base
+          PYTHONPATH=src .venv/bin/alembic upgrade head
+
   chart:
     name: Helm lint
     runs-on: ubuntu-latest
@@ -53,10 +95,9 @@ jobs:
             echo "::endgroup::"
           done
           if [ "$found" -eq 0 ]; then
-            echo "Nenhum chart presente ainda (Onda 4+)."
+            echo "Nenhum chart presente ainda (Onda 3+)."
           fi
 
-  # Guardrail de licença: o texto integral do Apache 2.0 é exigido no release.
   license:
     name: Licença e segredos
     runs-on: ubuntu-latest
@@ -73,8 +114,6 @@ jobs:
 
       - name: Apache 2.0 completo antes do release
         run: |
-          # FALHA apenas quando existir tag de release; antes disso o LICENSE
-          # carrega só o aviso (ver LICENSE). Avisa, não bloqueia, na Onda 0.
           if git describe --tags --exact-match >/dev/null 2>&1; then
             grep -q "Apache License" LICENSE
             grep -q "Version 2.0" LICENSE

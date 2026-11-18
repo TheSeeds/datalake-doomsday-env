@@ -1,2 +1,15 @@
-# Onda 0: contrato de tipos apenas. Dependências reais entram por onda.
-# lakecore é stdlib-only por decisão: o núcleo não deve carregar SDK de nuvem.
+# Dependências de produção do lakecore + camada de catálogo.
+#
+# `lakecore` em si é stdlib-only (ADR-007). Estas dependências pertencem ao
+# **adaptador de catálogo** e ao schema, não ao domínio.
+
+# Schema e migração.
+# Versões pinadas: migração que roda com uma versão e falha com outra não é
+# migração, é sorte. A subida de versão é evento deliberado, não automático.
+SQLAlchemy==2.0.36
+alembic==1.14.0
+
+# Driver PostgreSQL **síncrono**, de propósito: o projeto recusou asyncpg antes
+# (lição registrada no geoflow) porque não há ganho real neste volume e o custo
+# de manter duas pilhas de I/O é alto.
+psycopg[binary]==3.2.3

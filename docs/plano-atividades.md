@@ -4,7 +4,7 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** aprovado como plano. Onda 0 concluída.
+> **Status:** aprovado como plano. Ondas 0, 1 e 2 concluídas.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -46,8 +46,8 @@
 ```
 Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
-Onda 2  Schema do catálogo                      ← próxima
-Onda 3  Cluster mínimo de pé                    ~1 sessão
+Onda 2  Schema do catálogo                      ✅ feito
+Onda 3  Cluster mínimo de pé                    ← próxima
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ~1-2 sessões
 Onda 5  Consulta e dashboard                    ~2 sessões
 Onda 6  Backup e restore provado                ~1 sessão
@@ -236,11 +236,83 @@ migração de dado irreversível depois.
 
 **Pronto quando**
 ```bash
-make test-db     # alembic upgrade head → downgrade base → upgrade head
+make migrate-up-down   # alembic upgrade head → downgrade base → upgrade head
 ```
 
 **Risco.** Testar só em banco vazio. O CI deve rodar contra Postgres com dados
 (lição registrada no geoflow: migração que passa em banco novo falha em produção).
+
+### ✅ CONCLUÍDA — 2026-11-18
+
+**Prova executável:**
+```bash
+make ci-full       # 59 testes verdes em PostgreSQL real + lint
+make migrate-up-down
+# upgrade  -> 65a942da6f86 (objects, uploads)
+# downgrade base
+# upgrade  -> ok
+```
+
+**59 testes em PostgreSQL** (53 rodam também em SQLite, 6 exigem PG).
+
+| arquivo | responsabilidade |
+|---|---|
+| `src/lakecore/db/models.py` | `ObjectRow`, `UploadRow`; `JSONBMaisPortavel` (JSONB no PG, JSON no resto) |
+| `src/lakecore/db/catalog.py` | `SqlCatalog` — adaptador da porta `Catalog` |
+| `src/lakecore/db/migrations/env.py` | URL só de env var; `render_as_batch` em SQLite |
+| `versions/65a942da6f86` | schema inicial: `objects`, `uploads`, índice GIN |
+| `versions/8b1f2c3d4e5a` | `status` + `CHECK` + índice, com `server_default` |
+| `tests/db/` | catálogo, migrações e integração `ingest() → Postgres` |
+
+**Decisões que o código carrega:**
+
+- **`sha256` UNIQUE** é a implementação física da idempotência. `DuplicateObjectError`
+  traduz a violação de constraint em erro de domínio.
+- **`status` com `CHECK`** enumera os sete estados da máquina do domínio. Se o
+  domínio deixar passar valor inválido, o banco recusa.
+- **`server_default` na migração de coluna, removido depois.** Coluna `NOT NULL`
+  sem default falha em tabela populada — e é exatamente o cenário de produção.
+- **`JSONBMaisPortavel`** em vez de importar `JSONB`: o mesmo `CREATE TABLE`
+  funciona nos dois dialetos. GIN condicionado a PostgreSQL.
+- **Duas migrações de propósito.** A segunda existe para exercitar evolução de
+  schema **com dado dentro**, que a primeira nunca testa.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| `bytes` | coluna chamada `size_bytes` — `bytes` é builtin e vira ambiguidade em leitura de código |
+| `status` na migração inicial | entrou como **segunda** migração, para testar backfill em tabela populada |
+| `make test-db` | alvo real é `make migrate-up-down` + `make ci-full` |
+| `make ci` cobriria PG | não cobre: `make ci` continua sem Docker (onda 0–2 rodam com infra desligada); o alvo com PostgreSQL é `ci-full` |
+
+**Defeitos encontrados pelo teste, e corrigidos:**
+
+1. **Detecção de duplicado só funcionava em PostgreSQL.** O adaptador procurava
+   `uq_objects_sha256` na mensagem — nome que o PostgreSQL usa e o SQLite não.
+   Em SQLite, todo duplicado virava `IntegrityError` genérico e a ingestão
+   deixaria de ser idempotente sem sinal claro. Centralizado em
+   `_e_violacao_de_sha_unico()` e coberto por teste.
+2. **A migração autogerada referenciou `JSONBMaisPortavel()` sem importar** —
+   `NameError` em tempo de execução. Reescrita auto-contida.
+3. **Teste usava `now()`, que não existe em SQLite.** Timestamp passado por
+   parâmetro.
+4. **`text()` devolve JSON como string em SQLite e dict em PostgreSQL.** Teste
+   normaliza em vez de assumir.
+5. **Regressão que eu mesmo introduzi:** `make ci` passou a subir container
+   PostgreSQL, quebrando o princípio "ondas 0–2 rodam sem infra". Separado em
+   `ci` (sem Docker) e `ci-full` (com).
+
+**Pendências explícitas:**
+
+- **Adaptador de storage real não existe.** `ObjectStore` continua só em memória.
+  O critério da Onda 4 (objeto no Garage) ainda não pode ser cumprido.
+- **Estado sobrevive ao processo, agora.** Ao contrário da Onda 1, idempotência
+  entre execuções é testável — mas só contra o catálogo, não contra o objeto.
+- **Ainda bloqueada pela pergunta 2 da §10** (StatefulSet vs CloudNativePG). O
+  schema foi escrito para ser agnóstico: nenhuma feature exclusiva de operador.
+  Seguir com StatefulSet + `pg_dump` é reversível; adotar CNPG depois exige
+  migrar dados, não schema.
 
 ---
 

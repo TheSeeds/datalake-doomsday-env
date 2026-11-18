@@ -36,3 +36,7 @@ backup/
 .DS_Store
 .vscode/
 .idea/
+
+# Banco local de desenvolvimento do catálogo (nunca versionar)
+*.db
+.dev-catalog.db

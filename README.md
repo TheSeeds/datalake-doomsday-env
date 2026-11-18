@@ -18,15 +18,16 @@ decisões e plano de atividades — vive no repositório de conceito.
 
 ## Estado
 
-**Ondas 0 e 1 concluídas.** O núcleo de domínio funciona; infraestrutura e
-cluster ainda **não existem**.
+**Ondas 0, 1 e 2 concluídas.** O núcleo de domínio e o catálogo persistente
+funcionam; infraestrutura e cluster ainda **não existem**.
 
 | onda | estado |
 |---|---|
 | 0 — estrutura e CI | ✅ `make ci` verde sem cluster |
 | 1 — `lakecore` puro | ✅ `make ingest-demo`: 4 entradas → 2 objetos |
-| 2 — schema do catálogo | ⬜ próxima |
-| 3–7 | ⬜ |
+| 2 — schema do catálogo | ✅ 59 testes em PostgreSQL real; migração reversível |
+| 3 — cluster mínimo | ⬜ próxima |
+| 4–7 | ⬜ |
 
 ### `lakecore` — o coração
 
@@ -60,13 +61,27 @@ usam implementações em memória das mesmas portas.
 O plano completo, com as ondas 0–7 e o critério de pronto de cada uma, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).
 
+### Catálogo
+
+Duas tabelas: `objects` (o acervo catalogado) e `uploads` (lotes de ingestão).
+O schema sustenta os invariantes que o domínio assume:
+
+- `sha256` **UNIQUE** — idempotência é garantida pelo banco, não só pelo código
+- `origem` `NOT NULL` — dado sem procedência não entra
+- `metadados` JSONB (PostgreSQL) / JSON (SQLite) — dado heterogêneo não exige schema rígido
+- `status` com `CHECK` nos sete estados da máquina de estados
+
 ## Validação
 
 ```bash
-make ci        # não requer cluster, não requer rede
-
-make ingest-demo   # prova o critério da Onda 1
+make ci         # SQLite + lint — não requer cluster, Docker nem rede
+make ci-full    # + PostgreSQL real (requer Docker)
+make ingest-demo      # prova o critério da Onda 1
+make migrate-up-down  # upgrade → downgrade → upgrade em PostgreSQL
 ```
+
+Nenhum arquivo de configuração tem credencial: a URL do banco vem sempre de
+`LAKECORE_DATABASE_URL`.
 
 `make ci` roda sem Kubernetes, sem Garage e sem PostgreSQL. Isso é intencional:
 as ondas 0–2 rodam com o cluster desligado, porque o valor do projeto está no

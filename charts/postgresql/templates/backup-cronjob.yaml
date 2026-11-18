@@ -59,6 +59,11 @@ spec:
                   # `PGPASSWORD=... pg_dump ...` colocaria a senha no log do Job.
                   # Durante o teste isso aconteceu de fato.
                   set -eu
+                  # Registro de falha no EXIT: cobre aborto por `set -e`, dump
+                  # vazio (`test -s`) e falha de upload — os três jeitos pelos
+                  # quais este Job já falhou na prática. `$?` tem que ser lido
+                  # antes de qualquer outro comando.
+                  trap 'rc=$?; if [ "$rc" -ne 0 ]; then python3 /usr/local/bin/registrar_saude.py backup falha "job terminou com exit $rc"; fi' EXIT
                   ts=$(date -u +%Y%m%dT%H%M%SZ)
                   dump="/tmp/${POSTGRES_DB}-${ts}.sql.gz"
                   echo "iniciando dump de ${POSTGRES_DB}"
@@ -85,6 +90,11 @@ spec:
                   # que só existe em /tmp e some no fim do pod não é backup.
                   python3 /usr/local/bin/upload_s3.py "${dump}" "backup/postgres"
                   echo "backup enviado"
+                  # Registra o sucesso ANTES de sair: sem isso, a tabela `saude`
+                  # nunca sabe que o backup funcionou, e "nenhum sucesso
+                  # registrado" fica indistinguível de "nunca rodou".
+                  python3 /usr/local/bin/registrar_saude.py backup ok \
+                    "dump de $(wc -c < "${dump}") bytes enviado a backup/postgres"
                   echo "concluído"
               resources:
                 requests: {cpu: 50m, memory: 128Mi}

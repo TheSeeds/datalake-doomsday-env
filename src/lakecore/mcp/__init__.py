@@ -319,6 +319,31 @@ def lake_estado() -> str:
             if not linhas:
                 partes.append("  (vazio)")
             partes.append("")
+
+    # Frescor: a pergunta que o incidente de 2026-11-18 mostrou que ninguém faz.
+    # "Meu backup está funcionando?" tem que ter resposta aqui, sem painel e sem
+    # `kubectl`.
+    try:
+        from lakecore.saude import resumo
+
+        tudo_ok, sinais = resumo(engine())
+        partes.append("Saúde das rotinas:")
+        if not sinais:
+            partes.append(
+                "  (nenhum sinal registrado — isso NÃO significa que está tudo bem;"
+                " significa que nenhuma rotina reportou ainda)"
+            )
+        for sinal in sinais:
+            marca = "ok " if sinal.estado == "saudavel" else "!! "
+            partes.append(f"  {marca}{sinal.texto()}")
+        partes.append("")
+        partes.append(
+            "Resumo: " + ("tudo fresco" if tudo_ok else "ATENÇÃO — há rotina velha ou quebrada")
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("não consegui ler o frescor no MCP: %s", e)
+        partes.append("Saúde das rotinas: (indisponível)")
+
     return "\n".join(partes)
 
 

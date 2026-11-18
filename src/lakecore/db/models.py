@@ -150,3 +150,45 @@ class UploadRow(Base):
         CheckConstraint("falhas >= 0", name="falhas_nao_negativo"),
         Index("ix_uploads_origem_iniciado_em", "origem", "iniciado_em"),
     )
+
+
+class SaudeRow(Base):
+    """Sinal de frescor: quando cada rotina deu certo pela última vez.
+
+    POR QUE ESTA TABELA EXISTE:
+
+    em 2026-11-18 o CronJob de backup falhava em 100% das execuções havia horas
+    e ninguém viu. A informação estava visível em `kubectl get jobs` — o que
+    faltava era uma resposta pronta para a pergunta que alguém realmente faz:
+    "meu backup está funcionando?".
+
+    Um painel responde tendência, e tendência exige alguém olhando. Esta tabela
+    responde o **estado**, e responde com a stack de observabilidade desligada.
+
+    `ultimo_sucesso` e `ultima_falha` são colunas separadas de propósito: um
+    backup que falhou ontem e funcionou hoje é diferente de um que nunca
+    funcionou. Um booleano `ok` achataria os dois, e o primeiro é o caso normal.
+    """
+
+    __tablename__ = "saude"
+
+    #: Nome do sinal (`backup`, `ingestao`, `export`). Chave natural: é por ele
+    #: que se pergunta, e um `id` surrogate só adicionaria um join.
+    sinal: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+    ultimo_sucesso: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ultima_falha: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    total_ok: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    total_falha: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+    #: Mensagem da última falha. Guardar só "failed" obrigaria a caçar o log de
+    #: um pod que o Job já apagou — foi exatamente o que aconteceu no incidente.
+    detalhe: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

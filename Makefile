@@ -11,7 +11,7 @@ VENV_PY := $(VENV)/bin/python
 .PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
 	cluster cluster-verify cluster-down secrets chat-demo chat-role \
-	restore-drill restore-drill-check export-parquet clean
+	restore-drill restore-drill-check export-parquet frescor clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -246,3 +246,14 @@ clean:
 export-parquet:
 	@LAKECORE_DATABASE_URL="$${LAKECORE_DATABASE_URL:-$$(cat $$HOME/.hermes/lake-url.local 2>/dev/null)}" \
 		PYTHONPATH=src $(VENV_PY) -m lakecore.export.cli --destino derived
+
+# Frescor: "meu backup está funcionando?" em uma chamada, sem painel.
+# Contrapõe o incidente de 2026-11-18, em que a resposta estava em
+# `kubectl get jobs` e ninguém perguntou por 8 horas.
+frescor:
+	@LAKECORE_DATABASE_URL="$${LAKECORE_DATABASE_URL:-$$(cat $$HOME/.hermes/lake-url.local 2>/dev/null)}" \
+		PYTHONPATH=src $(VENV_PY) -c "from lakecore.saude import resumo; \
+from lakecore.mcp import engine; \
+ok, sinais = resumo(engine()); \
+print('\n'.join(('  ok ' if s.estado=='saudavel' else '  !! ') + s.texto() for s in sinais) or '  (nenhum sinal registrado)'); \
+print('\nResumo: ' + ('tudo fresco' if ok else 'ATENCAO'))"

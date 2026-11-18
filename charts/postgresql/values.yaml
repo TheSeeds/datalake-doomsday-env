@@ -48,7 +48,7 @@ backup:
     # `text/html` (página de erro de um pull antigo), não para a imagem — o
     # kubelet respondia `unexpected media type text/html` e ninguém ligava o
     # erro ao backup.
-    tag: "0.1.3"
+    tag: "0.2.0"
     # `Never`, não `IfNotPresent`. Descoberto em 2026-11-18: uma tag que existe
     # no containerd mas aponta para um fragmento inválido (página HTML de 404 de
     # um pull anterior) é aceita por `IfNotPresent` sem validação, e o pod

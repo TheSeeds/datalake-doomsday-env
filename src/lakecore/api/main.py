@@ -98,6 +98,11 @@ def health() -> dict[str, object]:
 
     Não devolve "ok" só porque o processo subiu: se o banco não responder, isto
     falha. Foi o erro do `pg_isready` na Onda 3 — probe que passa sem testar nada.
+
+    `frescor` é o que a Onda 6 provou faltar: saber que o processo está de pé não
+    diz que o backup rodou. O campo é informativo neste endpoint (liveness do
+    serviço); quem decide se o lake está saudável é `saude.resumo`, e ele está
+    exposto em `/frescor` com o código HTTP correspondente.
     """
     saude: dict[str, object] = {
         "service": "ingest-api",
@@ -114,7 +119,50 @@ def health() -> dict[str, object]:
         conn.execute(text("SELECT 1"))
 
     saude["catalogo"] = "ok"
+
+    # Frescor entra como Informação, não como gate: um backup atrasado não deve
+    # reiniciar o pod de ingestão. `/frescor` é o endpoint de gate.
+    try:
+        from lakecore.saude import resumo
+
+        _, sinais = resumo(engine)  # type: ignore[arg-type]
+        saude["frescor"] = {s.sinal: s.estado for s in sinais}
+    except Exception as e:  # noqa: BLE001 - não derruba o health por isso
+        log.warning("não consegui ler o frescor: %s", e)
+        saude["frescor"] = {"_erro": "tabela saude indisponível"}
+
     return saude
+
+
+@app.get("/frescor", status_code=200)
+def frescor() -> JSONResponse:
+    """Gate de frescor: 200 se tudo fresco, 503 se algo está velho ou quebrado.
+
+    POR QUE 503 E NÃO 200 COM `ok: false`: um endpoint que devolve 200 para um
+    lake quebrado não é monitorável — Prometheus, curl e kubelet leem o código.
+    A resposta confortável de `200` é o mesmo defeito do `pg_isready`.
+    """
+    engine = _state.get("engine")
+    if engine is None:
+        return JSONResponse(status_code=503, content={"erro": "não inicializado"})
+
+    from lakecore.saude import resumo
+
+    tudo_ok, sinais = resumo(engine)  # type: ignore[arg-type]
+    corpo = {
+        "ok": tudo_ok,
+        "sinais": [
+            {
+                "sinal": s.sinal,
+                "estado": s.estado,
+                "ultimo_sucesso": s.ultimo_sucesso.isoformat() if s.ultimo_sucesso else None,
+                "ultima_falha": s.ultima_falha.isoformat() if s.ultima_falha else None,
+                "detalhe": s.detalhe,
+            }
+            for s in sinais
+        ],
+    }
+    return JSONResponse(status_code=200 if tudo_ok else 503, content=corpo)
 
 
 @app.post("/uploads", response_model=UploadResponse, status_code=201)

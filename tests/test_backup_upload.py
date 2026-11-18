@@ -190,3 +190,40 @@ class TestPublicarDerivado:
         vazio = tmp_path / "objects.parquet"
         vazio.touch()
         assert pub.main(["publicar_derivado.py", str(vazio)]) == 65
+
+
+class TestRegistrarSaude:
+    """O script de saúde nunca pode derrubar o Job.
+
+    Registrar diagnóstico é secundário à operação. Um backup que funcionou mas
+    cujo registro falhou NÃO deve aparecer como backup falhado: isso trocaria um
+    diagnóstico ausente por um alarme falso, que é pior.
+    """
+
+    def _mod(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "backup"))
+        import registrar_saude
+
+        return registrar_saude
+
+    def test_sem_argumentos_sai_zero(self) -> None:
+        assert self._mod().main(["registrar_saude.py"]) == 0
+
+    def test_resultado_invalido_sai_zero(self) -> None:
+        """Recusa registrar, mas não quebra o Job."""
+        assert self._mod().main(["registrar_saude.py", "backup", "talvez"]) == 0
+
+    def test_sem_url_nem_env_sai_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Sem banco alcançável, avisa no stderr e segue."""
+        for k in ("LAKECORE_DATABASE_URL", "DATABASE_URL",
+                  "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
+            monkeypatch.delenv(k, raising=False)
+        assert self._mod().main(["registrar_saude.py", "backup", "ok"]) == 0
+
+    def test_banco_inacessivel_sai_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Banco fora do ar no momento do registro não pode falhar o backup."""
+        monkeypatch.setenv(
+            "LAKECORE_DATABASE_URL",
+            "postgresql+psycopg://naoexiste:naoexiste@127.0.0.1:1/naoexiste",
+        )
+        assert self._mod().main(["registrar_saude.py", "backup", "falha", "teste"]) == 0

@@ -67,8 +67,19 @@ echo
 
 echo "[2/4] Conferindo se a role já existe"
 if psql_admin "select 1 from pg_roles where rolname = '${ROLE}'" | grep -q 1; then
-  echo "  já existe — nada a criar."
-  echo "  Motivo de não recriar: recriar trocaria a senha e derrubaria o chat."
+  echo "  já existe — não vou recriar (isso trocaria a senha e derrubaria o chat)."
+  echo
+  echo "  Porém: toda tabela NOVA nasce sem SELECT para esta role. Isso já"
+  echo "  aconteceu com a tabela 'saude' (migração c4d9e1a7b203), e o sintoma foi"
+  echo "  'Saúde das rotinas: (indisponível)' no lake_estado — silencioso."
+  echo "  Por isso reaplico APENAS os grants, que são idempotentes."
+  if ${APLICAR}; then
+    psql_admin "grant select on all tables in schema public to ${ROLE}" >/dev/null
+    psql_admin "alter default privileges in schema public grant select on tables to ${ROLE}" >/dev/null
+    echo "  grants reaplicados (tabelas atuais + futuras)"
+  else
+    echo "  [dry-run] aplicaria: GRANT SELECT nas tabelas atuais e nas futuras"
+  fi
   exit 0
 fi
 echo "  não existe; será criada"

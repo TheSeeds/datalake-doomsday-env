@@ -1135,6 +1135,70 @@ de tabela ausente.
 - **O drill não roda agendado.** É manual (`make restore-drill`). Rodar
   semanalmente exigiria um CronJob que cria Pods — fica para a Onda 7.
 
+### ✅ 5.6 CONCLUÍDA — 2026-11-18 — sinal de frescor (a resposta que faltava)
+
+**Por que antes do Grafana:** em 2026-11-18 o backup falhou em 100% das
+execuções por horas. A informação estava **visível** em `kubectl get jobs` e
+ninguém olhou. Métrica nenhuma resolveria: faltava alguém perguntando. Esta
+tabela torna a pergunta respondível em uma chamada, com a stack de
+observabilidade desligada.
+
+**Prova executável:**
+```bash
+make frescor              # estado de cada rotina
+curl :18082/frescor       # 200 se fresco, 503 se velho/quebrado
+hermes -z "meu backup está funcionando?"   # via lake_estado
+```
+
+| arquivo | papel |
+|---|---|
+| `src/lakecore/db/migrations/versions/c4d9e1a7b203_*` | tabela `saude` |
+| `src/lakecore/saude/__init__.py` | `registrar`, `estado`, `resumo` |
+| `docker/backup/registrar_saude.py` | registra pelo `psql`, nunca derruba o Job |
+| `tests/test_saude.py` | 14 testes |
+
+**A decisão que o módulo inteiro gira em torno: sinal ausente NÃO é OK.**
+
+Um lake novo tem `ultimo_sucesso = NULL`. A resposta confortável é "sem problema
+registrado"; a correta é "isto nunca funcionou". `estado()` devolve
+`desconhecido`, e `desconhecido` **conta como problema** em `resumo()`.
+
+O primeiro teste pegou um furo real no meu código: `all()` de lista vazia é
+`True`, então um lake **sem sinal nenhum** passaria como saudável. Corrigido com
+`bool(sinais) and all(...)`.
+
+**Saída real, com o cluster de pé:**
+```
+Saúde das rotinas:
+  ok backup: saudavel  último sucesso há 12s  (dump de 3476 bytes aprovado)
+Resumo: tudo fresco
+```
+
+**Por que `psql` e não `sqlalchemy`:** a imagem do backup é `postgres:16` +
+`boto3` — não tem `sqlalchemy` nem `psycopg`. A primeira versão importava
+`sqlalchemy` e falhou com `No module named 'sqlalchemy'` **em silêncio**, porque
+o script sai 0 de propósito (registrar saúde não pode derrubar um backup que
+funcionou). Só apareceu no log do Job. Usar o que a imagem já tem evita 30 MB.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| Prometheus/Grafana como primeira camada | o **frescor** veio primeiro: custo zero, airgap-safe, e responde a pergunta direta |
+| — | `imagePullPolicy: Never` foi necessário no CronJob: `IfNotPresent` aceita tag corrompida (ver Onda 6) |
+
+**Pendências explícitas:**
+
+- **`ingestao` e `export` ainda não registram.** Só o backup. O CronJob de
+  `drop/` e o export precisam chamar `registrar_saude.py` para o resumo ficar
+  completo — hoje eles aparecem como `desconhecido` se pedidos.
+- **`/frescor` não está sob probe do Kubernetes.** Deixei de fora de propósito:
+  frescor atrasado não deve reiniciar pod. Mas ninguém é avisado a não ser que
+  pergunte.
+- **Role read-only precisa de grant em tabela nova.** Aconteceu com `saude`.
+  `criar-role-readonly.sh` agora reaplica grants e `alter default privileges`,
+  mas um `CREATE TABLE` futuro fora da migração ainda exigiria rodar de novo.
+
 ---
 
 ## Onda 7 — Bundle offline

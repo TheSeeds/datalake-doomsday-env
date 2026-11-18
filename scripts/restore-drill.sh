@@ -125,7 +125,13 @@ spec:
   containers:
     - name: drill
       image: ${IMAGEM}
-      imagePullPolicy: IfNotPresent
+      # "Never" e não "IfNotPresent": a imagem é construída localmente e
+      # importada no containerd. Com "IfNotPresent", uma tag que existe mas
+      # aponta para um fragmento inválido (página HTML de 404 de um pull
+      # anterior) é aceita sem validação — e o pod falha com
+      # "unexpected media type text/html". Com "Never", ou a imagem local é
+      # boa, ou o erro diz exatamente que ela não está lá.
+      imagePullPolicy: Never
       # A imagem tem ENTRYPOINT ["/bin/sh", "-c"], herdado do Job de backup.
       # Sem sobrescrever, o Kubernetes entrega o "command" como argumento do
       # "sh -c" e o pod morre com "-c requires an argument".

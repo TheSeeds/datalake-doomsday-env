@@ -49,7 +49,17 @@ backup:
     # kubelet respondia `unexpected media type text/html` e ninguém ligava o
     # erro ao backup.
     tag: "0.1.3"
-    pullPolicy: IfNotPresent
+    # `Never`, não `IfNotPresent`. Descoberto em 2026-11-18: uma tag que existe
+    # no containerd mas aponta para um fragmento inválido (página HTML de 404 de
+    # um pull anterior) é aceita por `IfNotPresent` sem validação, e o pod
+    # falha com "unexpected media type text/html" — erro que não menciona
+    # backup e custou horas. Com `Never`, ou a imagem local é boa, ou o erro
+    # diz claramente que ela não está lá (`ErrImageNeverPull`).
+    #
+    # Custo: a imagem precisa ser importada no nó antes do primeiro uso. É o
+    # que a instalação offline faz de qualquer forma (Onda 7), e é honesto:
+    # este lake não depende de registry.
+    pullPolicy: Never
 
 #: `pg_dump` acima; estas são as demais rotinas.
 maintenance:

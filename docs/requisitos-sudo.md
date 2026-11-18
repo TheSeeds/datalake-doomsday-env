@@ -247,7 +247,10 @@ sudo usermod -aG docker "$USER"
 sessão e entrar de novo.
 
 **Alternativa sem root.** Apontar `LAKECORE_TEST_PG_URL` para um PostgreSQL que
-você já tenha. **Não** usar o `pramimfez-postgres-1` — é de outro projeto.
+você já tenha, ou usar `make pg-up` (container efêmero na porta 55432).
+
+**Não** use um banco de outro projeto que já esteja rodando na máquina: o teste
+derruba e recria tabelas, e destruiria dados que não são seus.
 
 ---
 

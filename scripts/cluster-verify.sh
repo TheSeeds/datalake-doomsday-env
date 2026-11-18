@@ -6,11 +6,12 @@
 # pods estão Ready e nada é armazenado.
 #
 # IMPORTANTE — POR QUE NÃO USA `kubectl exec`/`logs`:
-# neste host o IP mudou (192.168.1.103 → .11) e o certificado do microk8s não
-# acompanhou. Consequência: `get` funciona; `exec`, `logs` e `port-forward` falham
-# com x509. O script detecta isso e degrada com AVISO EXPLÍCITO em vez de
-# reportar falha do cluster. Rodar `sudo microk8s refresh-certs --cert ca.crt`
-# resolve — e é passo de sudo (ver docs/requisitos-sudo.md).
+# o script detecta se `exec` funciona e degrada com AVISO EXPLÍCITO em vez de
+# reportar falha de infraestrutura. Em 2026-11-18 isso falhou porque o IP do host
+# mudou (.103 → .11) e o certificado do microk8s não acompanhou; resolveu com
+# `sudo microk8s refresh-certs --cert ca.crt`. A detecção é por teste real, para
+# que o aviso desapareça sozinho quando o problema for corrigido — e não fique
+# como diagnóstico herdado.
 #
 # USO: scripts/cluster-verify.sh
 
@@ -27,15 +28,19 @@ falha() { printf '  FALHA %s\n' "$*"; FALHAS=$((FALHAS + 1)); }
 
 kc() { microk8s kubectl "$@"; }
 
-# Detecta se `exec` está funcional. Sem isso, verificação interna do Garage e
-# `pg_isready` via exec são impossíveis — e o script precisa dizer isso, não
-# transformar limitação de ferramenta em falha de infraestrutura.
+# Detecta se `exec` está funcional. Sem isso, verificação interna via exec é
+# impossível — e o script precisa dizer isso, não transformar limitação de
+# ferramenta em falha de infraestrutura.
+#
+# Atenção: a imagem do Garage é SHELL-LESS (sem `/bin/sh`, sem `true`). Testar
+# `exec -- true` acusa falha mesmo com exec funcionando — o erro é "executable
+# file not found". Por isso o teste usa o binário que comprovadamente existe.
 exec_funciona() {
   local pod
   pod="$(kc -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=garage \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
   [[ -n "${pod}" ]] || return 1
-  kc -n "${NAMESPACE}" exec "${pod}" -- true >/dev/null 2>&1
+  kc -n "${NAMESPACE}" exec "${pod}" -- /garage --version >/dev/null 2>&1
 }
 
 echo "== storage =="
@@ -81,16 +86,45 @@ fi
 echo
 echo "== Garage: layout do cluster =="
 # A falha silenciosa da Onda 3: DaemonSet Running sem layout = não armazena.
-# O layout é verificável de fora, pelo estado em disco no host.
+# Preferência: perguntar ao próprio Garage via exec. O estado em disco no host é
+# o fallback, usado quando exec não está disponível.
 LAYOUT="/var/lib/garage/meta/cluster_layout"
-if [[ -f "${LAYOUT}" ]]; then
-  if [[ -s "${LAYOUT}" ]]; then
-    ok "cluster_layout presente e não vazio"
+if exec_funciona; then
+  pod="$(kc -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=garage \
+    -o jsonpath='{.items[0].metadata.name}')"
+  saida="$(kc -n "${NAMESPACE}" exec "${pod}" -- /garage -c /etc/garage.toml status 2>/dev/null || true)"
+  if grep -qE '^[a-f0-9]{8,}' <<<"${saida}"; then
+    nos="$(grep -cE '^[a-f0-9]{8,}' <<<"${saida}")"
+    ok "garage status: ${nos} nó(s) no layout"
+    grep -E '^[a-f0-9]{8,}' <<<"${saida}" | sed 's/^/        /'
   else
-    falha "cluster_layout vazio — Garage NÃO armazena (rode scripts/garage-layout.sh)"
+    falha "garage status sem nó no layout — NÃO armazena (rode scripts/garage-layout.sh)"
+  fi
+elif [[ -f "${LAYOUT}" && -s "${LAYOUT}" ]]; then
+  ok "cluster_layout presente (verificado em disco; exec indisponível)"
+elif [[ -f "${LAYOUT}" ]]; then
+  falha "cluster_layout vazio — Garage NÃO armazena (rode scripts/garage-layout.sh)"
+else
+  falha "cluster_layout ausente e exec indisponível — não foi possível verificar"
+fi
+
+echo
+echo "== PostgreSQL: autentica de verdade =="
+if exec_funciona; then
+  # `pg_isready` NÃO serve: retorna 0 mesmo com role inexistente. `SELECT 1`
+  # exercita autenticação, que é o que o probe do chart também passou a usar.
+  #
+  # shellcheck disable=SC2016  # aspas simples de propósito: a expansão de
+  # $POSTGRES_USER acontece dentro do pod, não neste shell.
+  if kc -n "${NAMESPACE}" exec postgresql-0 -- \
+       sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -tAc "SELECT 1"' \
+       >/dev/null 2>&1; then
+    ok "SELECT 1 autenticado como \$POSTGRES_USER"
+  else
+    falha "psql não autenticou — credencial do Secret não confere"
   fi
 else
-  falha "cluster_layout ausente — Garage NÃO armazena (rode scripts/garage-layout.sh)"
+  aviso "verificação de autenticação do Postgres pulada (exec indisponível)"
 fi
 
 echo

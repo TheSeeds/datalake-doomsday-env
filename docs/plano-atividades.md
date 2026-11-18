@@ -500,10 +500,9 @@ registrado que a escolha foi por ausência de `sudo`, não por mérito técnico.
 
 **Pendências explícitas:**
 
-- **`kubectl exec`/`logs`/`port-forward` estão quebrados** neste host: o IP mudou
-  (`.103` → `.11`) e o certificado do apiserver não acompanhou. Consequência real:
-  depurar qualquer pod exige `sudo microk8s refresh-certs --cert ca.crt`. Contornado
-  nesta onda com Jobs que escrevem em `hostPath`, mas **é dívida**, não solução.
+- ~~`kubectl exec`/`logs`/`port-forward` quebrados~~ — **resolvido em 2026-11-18**
+  com `sudo microk8s refresh-certs --cert ca.crt`. Ver `requisitos-sudo.md`, P1.
+  O que a correção revelou está logo abaixo e é o mais importante da onda.
 - **`rf=1` continua sendo "lake de preparação"** (ADR-005). Nada insubstituível
   deve entrar em `raw/` antes de 3 nós + `rf=3`.
 - **Chaves S3 de teste ficaram no cluster** (`lakecore-ingest`, `verificador`).
@@ -511,6 +510,31 @@ registrado que a escolha foi por ausência de `sudo`, não por mérito técnico.
 - O Postgres não foi testado com **restart** ainda. Persistência é afirmada pelo
   PVC `Bound` e pelo `pgdata` em disco, não por um ciclo de reinício provado —
   isso é Onda 6.
+
+### Adendo (2026-11-18, depois do P1) — o que `logs` escondia
+
+Assim que `logs` voltou, apareceu um bug que existia desde a primeira instalação:
+
+```
+FATAL: role "$(POSTGRES_USER)" does not exist     (a cada 10s)
+```
+
+Duas falhas na mesma linha:
+
+1. **`$(VAR)` não é expandido em `exec.command`** no Kubernetes — só em
+   `command`/`args`. Os argumentos chegavam literais ao container.
+2. **`pg_isready` devolve 0 mesmo com role inexistente** (medido: `-U '$(POSTGRES_USER)'`
+   → exit 0). Ou seja, o readiness probe **passava sem testar autenticação**.
+   O pod ficava `Ready` com credencial potencialmente quebrada.
+
+Corrigido: probe roda `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT 1'`
+via `sh -c`. Validado por medição — exit 2 com role inexistente, exit 0 com a
+role correta.
+
+**É a terceira ocorrência do mesmo padrão em um dia:** `make ci | tail`,
+objetos <1 MiB inlinados no LMDB, e agora `pg_isready`. **Três coisas que
+pareciam verdes sem exercitar nada.** O antídoto é sempre o mesmo: perguntar
+qual mecanismo o teste realmente toca, e provar que ele **falha** quando deve.
 
 **Para desbloquear:** rode o Passo 1 de `docs/requisitos-sudo.md` e eu executo
 `make cluster && make cluster-verify`.

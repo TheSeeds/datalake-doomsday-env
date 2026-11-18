@@ -7,7 +7,31 @@ Cada item diz: o comando, o que ele muda, e o que fica bloqueado sem ele.
 
 ---
 
-## 🔴 P1 — certificado do apiserver (bloqueia depuração)
+## ✅ P1 — certificado do apiserver — **RESOLVIDO em 2026-11-18**
+
+```bash
+sudo microk8s refresh-certs --cert ca.crt   # executado pelo usuário
+```
+
+**Resultado:** `kubectl exec`, `logs` e `port-forward` voltaram a funcionar;
+cluster e layout do Garage sobreviveram ao restart. O aviso 3 do
+`cluster-verify.sh` desapareceu sozinho — a detecção é por teste real, não por
+diagnóstico herdado.
+
+**O que a correção revelou de imediato** (nada disso era visível antes, porque
+`logs` estava inacessível):
+
+| descoberta | gravidade |
+|---|---|
+| probe do PostgreSQL usava `$(POSTGRES_USER)` em `exec.command`, que o Kubernetes **não expande** | logs com `role "$(POSTGRES_USER)" does not exist` a cada 10 s |
+| `pg_isready` retorna **0 mesmo com role inexistente** — o probe passava sem testar autenticação | falha silenciosa: pod `Ready` com credencial quebrada |
+
+Ambos corrigidos: probe agora roda `psql ... -c 'SELECT 1'` via `sh -c`, que
+autentica de fato (medido: exit 2 com role inexistente).
+
+---
+
+## Histórico — P1 original (mantido como registro)
 
 **Sintoma.** `kubectl get` funciona; `kubectl exec`, `kubectl logs` e
 `kubectl port-forward` falham:

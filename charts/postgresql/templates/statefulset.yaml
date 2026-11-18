@@ -59,13 +59,28 @@ spec:
                 optional: false
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              # `pg_isready` NÃO serve como probe aqui: ele devolve 0 sempre que
+              # o servidor aceita conexões, mesmo com role inexistente (medido).
+              # Um probe assim passa sem testar nada — verde sem exercitar.
+              #
+              # `SELECT 1` autentica de verdade: usuário errado, senha errada ou
+              # banco ausente falham com exit != 0.
+              #
+              # `$(VAR)` NÃO é expandido em `exec.command` no Kubernetes (só em
+              # `command`/`args`), por isso o `sh -c`.
+              command:
+                - sh
+                - -c
+                - psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -c 'SELECT 1'
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              command:
+                - sh
+                - -c
+                - psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -c 'SELECT 1'
             initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 5

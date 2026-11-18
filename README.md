@@ -125,9 +125,16 @@ make cluster-verify
 configura layout; sem ele os pods ficam `Ready` e a escrita falha. O passo é
 `scripts/garage-layout.sh assign --apply` e depois `apply`.
 
-> **Limitação conhecida deste host:** `kubectl exec`, `logs` e `port-forward`
-> falham com `x509` porque o IP da máquina mudou e o certificado do apiserver não
-> acompanhou. `get` funciona. Correção: `sudo microk8s refresh-certs --cert ca.crt`.
+> **Resolvido em 2026-11-18:** `kubectl exec`, `logs` e `port-forward` falhavam
+> com `x509` porque o IP da máquina mudou e o certificado do apiserver não
+> acompanhou. `sudo microk8s refresh-certs --cert ca.crt` corrigiu, e
+> `scripts/cluster-verify.sh` agora reporta `kubectl exec funcional`.
+>
+> **O que o `refresh-certs` NÃO resolveu:** o CA do microk8s não inclui a
+> extensão `key usage`, nem antes nem depois de regenerar. Clientes TLS modernos
+> (Python 3.14, usado pelos sidecars) recusam esse CA. Por isso o módulo
+> `observability` usa `sidecar.skipTlsVerify: true` — dívida de segurança
+> declarada no `modules/observability/values.yaml`, com o motivo e o risco.
 
 `make ci` roda sem Kubernetes, sem Garage e sem PostgreSQL. Isso é intencional:
 as ondas 0–2 rodam com o cluster desligado, porque o valor do projeto está no

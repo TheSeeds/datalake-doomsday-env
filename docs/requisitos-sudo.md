@@ -294,3 +294,38 @@ apagou o projeto.
 **Pendências de privilégio inalteradas** (continuam opcionais e não bloqueiam):
 `microk8s enable hostpath-storage`, `sudo usermod -aG docker $USER`,
 `sudo microk8s refresh-certs --cert ca.crt`.
+
+---
+
+## ✅ P1 EXECUTADO — 2026-11-18 — `microk8s refresh-certs`
+
+O usuário executou `sudo microk8s refresh-certs --cert ca.crt`. Resultado medido:
+
+**O que resolveu:** `kubectl exec`, `logs` e `port-forward` voltaram a funcionar.
+O `x509` que nos perseguia desde a Onda 3 (IP do host mudou de .103 para .11 e o
+certificado não acompanhou) acabou. `scripts/cluster-verify.sh` agora reporta
+"kubectl exec funcional" em vez de AVISO de degradação.
+
+**O que NÃO resolveu, e é um achado:** eu tinha juntado dois problemas
+diferentes. O CA regenerado **também** não tem a extensão `key usage` — só
+`Basic Constraints: critical, CA:TRUE`. Verificado com `openssl x509` no CA do
+kubeconfig depois da troca.
+
+Consequência: o `skipTlsVerify: true` do módulo `observability` **continua
+necessário**. Testei removê-lo depois do `refresh-certs` e o sidecar voltou a
+`CrashLoopBackOff` com `CA cert does not include key usage extension`.
+
+| problema | causa | `refresh-certs` resolve? |
+|---|---|---|
+| `x509` em exec/logs/port-forward | certificado com IP antigo | ✅ sim |
+| sidecar recusa o CA | CA sem extensão `key usage` (como o microk8s gera) | ❌ não |
+
+**O que ficou na fila:** o ideal seria um CA bundle próprio para os sidecars ou
+uma imagem cujo cliente TLS não exija a extensão. Nenhum dos dois se paga por um
+componente acessório; a dívida está registrada no `values.yaml` do módulo, com o
+risco escrito por extenso.
+
+**A disponibilidade continua:** antes de rodar, o usuário precisa saber que
+`refresh-certs` reinicia o `kubelite` e o `cluster-agent`, e que nós workers
+precisariam ser removidos e re-juntados. Aqui há **um** nó, então não houve
+impacto — mas num cluster multi-nó isto é operação de janela.

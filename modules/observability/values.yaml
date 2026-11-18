@@ -53,8 +53,19 @@ kube-prometheus-stack:
       # RISCO, dito com clareza: dentro do pod, interceptação entre o sidecar e
       # o apiserver não seria detectada. É contenção de dano, não conserto.
       #
-      # CONSERTO REAL: `sudo microk8s refresh-certs --cert ca.crt`
-      # (P1 em docs/requisitos-sudo.md). Feito isso, apague esta linha.
+      # TENTATIVA DE CONSERTO, E O QUE ELA ENSINOU (2026-11-18): o
+      # `sudo microk8s refresh-certs --cert ca.crt` foi executado e NÃO resolveu
+      # este caso. Medido: o CA regenerado também não tem a extensão `key usage`
+      # (só `Basic Constraints: critical, CA:TRUE`). Não é certificado
+      # desatualizado — é como o microk8s gera o CA.
+      #
+      # O que o refresh-certs SIM resolveu: o `x509` do apiserver por mudança de
+      # IP (exec/logs/port-forward voltaram a funcionar). São dois problemas
+      # diferentes que eu tinha juntado.
+      #
+      # CONSERTO REAL: usar uma imagem de sidecar cujo cliente TLS não exija a
+      # extensão, ou montar um CA bundle próprio. Nenhum dos dois vale o custo
+      # por um componente acessório. Dívida registrada, não esquecida.
       skipTlsVerify: true
 
       # `/tmp` gravável para o sidecar. O chart monta `/tmp` só no container

@@ -29,10 +29,26 @@ objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256
 | 3 — cluster mínimo | ✅ | PUT/GET de 5 MiB com `sha256` conferindo; blocos em disco |
 | 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
 | 5 — conversar com os dados | 🟢 5.1 e 5.3 feitas | executor read-only + tela de chat via MCP, provada contra o catálogo |
-| 6–7 | ⬜ | |
+| 6 — backup e restore | ✅ | `make restore-drill`: dump do Garage → catálogo idêntico (contagem + md5) |
+| 7 — bundle offline | ⬜ | |
 
 O plano completo, com o bloco de conclusão de cada onda, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).
+
+### Backup provado, não prometido
+
+`pg_dump` diário rodando não é backup — é esperança. Em 2026-11-18 descobrimos
+que o Job falhava em **100% das execuções** e ninguém sabia, porque ninguém
+restaurava. O drill agora é código:
+
+```bash
+make restore-drill        # --apply explícito; sem ele mostra o que faria
+```
+
+Restaura o dump mais recente num banco **novo**, sem tocar no original, e
+compara os dois por **contagem e md5 das chaves** — contagem sozinha aprova
+"restaurei 11 linhas, só que as erradas". Se divergir, o banco de rascunho é
+**mantido** para inspeção; apagá-lo tornaria o incidente irreproduzível.
 
 ### `lakecore` — o coração
 

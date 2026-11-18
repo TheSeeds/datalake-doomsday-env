@@ -4,10 +4,8 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 e 5.3 prontas;
-> 5.2/5.4/5.5 abertas). Onda 6 parcial: o backup estava quebrado e foi
-> consertado, e o restore foi provado em banco novo — falta `make restore-drill`.
-> Onda 7 não começou.
+> **Status:** Ondas 0 a 4 e 6 concluídas. Onda 5 em andamento (5.1 e 5.3
+> prontas; 5.2/5.4/5.5 abertas). Onda 7 não começou.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -126,7 +124,7 @@ Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
 Onda 5  Conversar com os dados (chat)           🟢 5.1 e 5.3 feitas; 5.2/5.4/5.5 abertas
-Onda 6  Backup e restore provado                🟢 6.1 feita (restore provado); falta automatizar
+Onda 6  Backup e restore provado                ✅ feito (backup consertado + restore provado)
 Onda 7  Bundle offline                          ⬜ não começou  ~1-2 sessões
 ────────────────────────────────────────────────────────────
 Total                              ~9-11 sessões de trabalho
@@ -933,7 +931,7 @@ make restore-drill      # cluster limpo → 100% dos objetos e linhas de volta
 **Risco.** Chamar `pg_dump` de "backup" sem nunca ter restaurado. Restore não
 testado é esperança, não backup.
 
-### 🟡 6.1 — O BACKUP ESTAVA QUEBRADO. Consertado e provado — 2026-11-18
+### ✅ ONDA 6 CONCLUÍDA — 2026-11-18 — backup consertado e restore provado
 
 Esta seção existe porque o item mais importante da Onda 6 **não era** o restore
 drill: era descobrir que o backup nunca funcionou.
@@ -1017,20 +1015,68 @@ inlinados no LMDB, `pg_isready` com role inválida.)
 
 **Pendências explícitas:**
 
-- **`make restore-drill` não existe.** O drill foi manual. Sem alvo automatizado,
-  a próxima pessoa repete o erro de confiar sem testar.
-- **Os dois backups que estão no Garage não têm dono declarado:**
-  `postgres/d-...sql.gz` (2.262 bytes, do teste de debug) e
-  `postgres/lakecore-...sql.gz` (3.239 bytes, o real). O primeiro é lixo de
-  depuração e deve ser apagado antes de dado real.
-- **Restore destrutivo (apagar o PVC) não foi feito.** Falta segundo nó para
-  isso ser seguro.
-- **A imagem `lakecore-backup:0.1.0` continua no containerd** apontando para o
-  `text/html`. Não removi para não quebrar um release antigo que a referencie;
-  o values agora aponta para `0.1.1`.
+### ✅ `make restore-drill` — o critério de pronto, agora executável
+
+O drill que eu tinha feito à mão virou código. Executa o ciclo inteiro dentro de
+um Pod efêmero e **falha se divergir**.
+
+**Prova:**
+```bash
+make restore-drill
+#   assinatura do banco ORIGINAL:
+#     objects: 11 linhas, md5=1537030f91fe27b59bd8ba94391e4f77
+#     uploads: 0 linhas, md5=(vazio)
+#   assinatura do banco RESTAURADO:
+#     objects: 11 linhas, md5=1537030f91fe27b59bd8ba94391e4f77
+#     uploads: 0 linhas, md5=(vazio)
+#   ✓ RESTORE PROVADO — o dump voltou a ser um catálogo idêntico
+```
+
+| arquivo | papel |
+|---|---|
+| `docker/backup/restore_drill.py` | escolhe o dump, valida `PGDMP`, restaura, compara |
+| `scripts/restore-drill.sh` | orquestra o Pod; `--dry-run` é o padrão |
+| `tests/test_restore_drill.py` | 14 testes da lógica de comparação |
+| Makefile | `restore-drill`, `restore-drill-check` |
+
+**Por que compara md5 e não só `count(*)`:** contagem sozinha aprova
+"restaurei 11 linhas, só que as erradas". A assinatura é
+`(número de linhas, md5 da lista de chaves ordenada)` por tabela. Verifiquei que
+o comparador **falha** ao remover a checagem de digest e ao remover a detecção
+de tabela ausente.
+
+**O drill também foi testado contra falsos positivos:**
+
+| situação plantada | resposta do drill |
+|---|---|
+| `.sql.gz` com lixo e nome mais recente | `não é um dump custom do pg_dump (começa com b'isto ')` |
+| banco restaurado sem `uploads` | `uploads: ausente no banco restaurado` |
+| mesma contagem, conteúdo diferente | `mesma contagem (11) mas conteúdo diverge` |
+
+**Três defeitos meus, pegos pelo próprio caminho:**
+
+1. `ENTRYPOINT ["/bin/sh","-c"]` da imagem fazia o Pod morrer com
+   `-c requires an argument`; foi preciso sobrescrever `command`.
+2. `psql`/`pg_restore` **não leem `POSTGRES_PASSWORD`** — é `PGPASSWORD`. O Job
+   de backup já tinha pago esse erro, e ele reapareceu aqui.
+3. shellcheck `SC2006`: backticks dentro de comentário. Corrigido para aspas.
+
+**Pendências explícitas:**
+
+- **Restore destrutivo (apagar o PVC) não foi feito.** O drill restaura num
+  banco novo do **mesmo** servidor. Simular a perda do PVC exigiria apagar o
+  volume de um nó único — arriscaria o acervo sem provar nada a mais. Fica para
+  quando houver segundo nó.
+- **O backup de depuração `postgres/d-20261118T114938Z.sql.gz` (2.262 bytes)
+  continua no Garage** e deve ser apagado antes de dado real.
+- **A tag `lakecore-backup:0.1.0` continua no containerd** apontando para o
+  `text/html`. Não removi para não quebrar um release antigo; o values aponta
+  para `0.1.3`.
 - **Nada disso é monitorado.** A falha ficou 8 horas visível em
   `kubectl get jobs` e ninguém viu. Observabilidade (OpenTelemetry + Grafana)
   foi discutida nesta sessão e **deliberadamente adiada** — decisão do usuário.
+- **O drill não roda agendado.** É manual (`make restore-drill`). Rodar
+  semanalmente exigiria um CronJob que cria Pods — fica para a Onda 7.
 
 ---
 

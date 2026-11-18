@@ -10,7 +10,8 @@ VENV_PY := $(VENV)/bin/python
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
 .PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
-	cluster cluster-verify cluster-down secrets chat-demo chat-role clean
+	cluster cluster-verify cluster-down secrets chat-demo chat-role \
+	restore-drill restore-drill-check clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -32,6 +33,7 @@ help:
 	@echo "  make cluster-down    remove o release"
 	@echo "  make chat-role   cria a role read-only do chat (defesa 4)"
 	@echo "  make chat-demo   prova a 5.3: catalogo -> tela (sem LLM tambem)"
+	@echo "  make restore-drill  critério da Onda 6: restaura e compara com o original"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
@@ -210,6 +212,17 @@ chat-demo:
 	@echo
 	@echo "Abrir a tela:  hermes webapp"
 	@echo "Perguntar:     hermes -z \"quantos objetos por origem eu tenho?\""
+
+# Critério de pronto da Onda 6, em forma executável.
+# `pg_dump` diário rodando não é backup — é esperança. Este alvo restaura num
+# banco novo e compara contagem E md5 das chaves. Falha se divergir.
+restore-drill:
+	scripts/restore-drill.sh --apply
+
+# Mesmo drill, mostrando o que faria sem tocar em nada.
+restore-drill-check:
+	scripts/restore-drill.sh
+
 # --- integração (Onda 4) ------------------------------------------------------
 # Exige Garage e PostgreSQL ALCANÇÁVEIS. No host, via port-forward:
 #   kubectl -n lake-data port-forward svc/garage 13900:3900 &

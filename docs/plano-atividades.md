@@ -72,6 +72,23 @@
    Contorno sem root é permitido (foi o caso do `local-path-provisioner` em vez do
    addon do microk8s), mas **só com registro explícito** do que mudou e por quê.
    Contorno silencioso é o mesmo pecado de pendência implícita.
+11. **Toda necessidade de root vira script + auditoria legível.** Nunca um bloco
+    de comandos para copiar.
+
+    O script é a **única** forma de o usuário executar algo com privilégio. E ele
+    precisa poder revisar antes de rodar, sem ler shell:
+
+    | o que o script tem que declarar | por quê |
+    |---|---|
+    | **o que muda** no sistema, em uma frase | decidir se quer |
+    | **lista de ações**, uma linha cada, em português | auditar sem ler bash |
+    | **o que NÃO faz** (não apaga, não remove, não expõe) | o medo real |
+    | **como reverter** | saída de emergência |
+    | `--dry-run` quando houver mudança permanente | ver antes de aplicar |
+    | validação de `EUID` com recusa explícita | falhar cedo e claro |
+
+    Nenhum script de root sem `--reverter` ou `--help` que explique a reversão.
+    Script de root sem caminho de volta não é ferramenta, é armadilha.
 10. **Toda parada gera checkpoint de memória — qualquer que seja o motivo.**
     Fim de onda, bloqueio, troca de assunto, fim de sessão. Não é só "quando
     termina bem": parada por bloqueio é justamente quando o contexto mais se perde.

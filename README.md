@@ -28,7 +28,7 @@ objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256
 | 2 — schema do catálogo | ✅ | 59 testes em PostgreSQL real; migração reversível |
 | 3 — cluster mínimo | ✅ | PUT/GET de 5 MiB com `sha256` conferindo; blocos em disco |
 | 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
-| 5 — consulta e dashboard | ⬜ próxima | |
+| 5 — conversar com os dados | 🟢 5.1 feita | executor SQL read-only, 33 testes |
 | 6–7 | ⬜ | |
 
 O plano completo, com o bloco de conclusão de cada onda, está em

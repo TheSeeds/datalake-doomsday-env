@@ -4,7 +4,7 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0 a 4 concluídas. A ingestão ponta a ponta está provada no cluster.
+> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 pronta).
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -105,7 +105,7 @@ Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
-Onda 5  Consulta e dashboard                    ← próxima
+Onda 5  Conversar com os dados (chat)           🟢 5.1 feita
 Onda 6  Backup e restore provado                ~1 sessão
 Onda 7  Bundle offline                          ~1-2 sessões
 ────────────────────────────────────────────────────────────
@@ -652,23 +652,111 @@ O restart do microk8s não resolvia porque o problema nunca foi do cluster.
 
 ---
 
-## Onda 5 — Consulta e dashboard
+## Onda 5 — Conversar com os dados (chat)
 
-**Objetivo.** Perguntar "o que tem no lake?" e receber resposta.
+**Objetivo.** A pessoa pergunta em português e recebe resposta **vinda dos dados**.
+
+**Pergunta de produto respondida em 2026-11-18** (era o último item aberto da
+§10): quem usa são pessoas que querem **controle sobre os próprios dados**,
+coleta simples e custo baixo. Ao executar pela primeira vez, o que querem ver é
+**uma interface para conversar com os próprios dados** — um chat.
+
+Isso redefine a onda. Dashboard deixa de ser o centro e passa a ser
+**diagnóstico de saúde** do lake, não exploração. Ver ADR-014.
 
 **Entregáveis**
-- CronJob que exporta catálogo → Parquet em `derived/`
-- `query-api` com DuckDB sobre Parquet + agregações por origem/tipo/mês
-- Página com volume, últimas entradas, saúde da ingestão
-- **Playwright** cobrindo o fluxo (fecha a guardrail hoje inexequível)
+- **`chat-api`**: recebe pergunta em linguagem natural, devolve resposta + o SQL
+  que foi executado
+- **Executor de SQL com read-only, `LIMIT` e `timeout`** — o componente crítico
+- Página de chat (a interface principal)
+- Painel secundário: volume, últimas entradas, saúde
+- **Playwright** cobrindo: pergunta → resposta → SQL visível
 
 **Pronto quando**
 ```bash
-make demo && make e2e     # Playwright verde no fluxo de consulta
+make chat-demo    # "quantos arquivos tenho por origem?" → resposta + SQL
+make e2e          # Playwright verde no fluxo de conversa
 ```
 
-**Risco.** Métrica bonita sem pergunta. Ver §9 — o `seed` depende da pergunta
-de produto, que ainda não foi respondida.
+**O que NÃO é.** O chat não "sabe" nada sobre o acervo por conta própria. Toda
+afirmação sobre os dados nasce de consulta executada. O modelo redige; o banco
+responde.
+
+**Risco — o maior da onda.** Um `DROP` gerado por modelo é o pior cenário
+possível neste projeto: o dado bruto é o ativo e não é reconstruível. Mitigações
+obrigatórias, todas testáveis:
+
+1. credencial **read-only** no executor, separada da de ingestão
+2. allowlist: só `SELECT` (e `WITH`) passa
+3. `LIMIT` forçado e `statement_timeout`
+4. **o SQL é mostrado ao usuário** — transparência é o que separa "conversar
+   com os dados" de "confiar no chatbot"
+
+**Ordem interna da onda:**
+
+| # | entrega | por quê antes do resto |
+|---|---|---|
+| 5.1 | executor SQL read-only + testes de recusa | sem isso o chat é um vetor de destruição |
+| 5.2 | export Parquet do catálogo | dá ao chat algo para consultar sem bater no OLTP |
+| 5.3 | `chat-api` com LLM plugável | Ollama/vLLM já rodam na máquina |
+| 5.4 | UI de chat | só depois de 5.1–5.3 provados |
+| 5.5 | painel secundário + e2e | fecha a guardrail de Playwright |
+
+**Dependência externa declarada.** O LLM é **opcional**: sem ele o chat degrada
+para "pergunta por filtro" (origem, tipo, data). Um lake que só funciona com GPU
+disponível não serve para infraestrutura mínima.
+
+### 🟢 5.1 CONCLUÍDA — 2026-11-18 — executor SQL read-only
+
+Onda em andamento. **5.1 está pronta**; 5.2–5.5 não.
+
+**Prova executável:**
+```bash
+make test          # 33 testes no executor, sem rede e sem container
+```
+
+| arquivo | conteúdo |
+|---|---|
+| `src/lakecore/chat/executor.py` | `validar()`, `executar()`, `ResultadoSql`, `SqlRecusado` |
+| `tests/test_chat_executor.py` | 33 testes: 11 formas de escrita, statements múltiplos, CTE com escrita, falso positivo |
+
+**Quatro camadas de defesa, independentes:**
+
+| # | defesa | falha se… |
+|---|---|---|
+| 1 | allowlist de primeira palavra (`SELECT`/`WITH`) | — |
+| 2 | statement único (`;` só no fim) | — |
+| 3 | `WITH` contendo `insert/update/delete/merge` recusado | — |
+| 4 | credencial **read-only** no banco (o chart, ainda não feito) | as três acima falharem |
+
+**O que o teste prova de verdade** — e eu verifiquei que **falha** ao remover a
+allowlist:
+
+```
+FAILED test_escrita_e_recusada[DROP TABLE objects]
+FAILED test_escrita_e_recusada[DELETE FROM objects]
+FAILED test_recusa_antes_de_tocar_no_banco
+```
+
+**Não recusa falso positivo** — três testes específicos:
+`select drop_reason from events`, `select * from delete_log`,
+`select 'DROP TABLE x'`. Buscar substring recusaria os três; análise da primeira
+palavra não.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| ordem 5.1 → 5.5 | mantida, mas 5.1 cresceu: 4 camadas e 33 testes em vez de "um executor" |
+| `LIMIT` forçado | pede `limite + 1` linhas de propósito — com exatamente `limite` não há como distinguir "havia mais" de "cabia justo" |
+
+**Pendências explícitas:**
+
+- **A credencial read-only no banco não existe ainda.** É a defesa que não
+  depende de mim estar certo; sem ela o executor protege só pelo parsing.
+- **5.2 a 5.5 não começaram:** export Parquet, `chat-api`, UI, e2e.
+- **`SET LOCAL statement_timeout` não é verificado em SQLite** — o teste roda nele
+  e o `except` engole. Precisa de um teste contra PostgreSQL real na 5.2.
 
 ---
 
@@ -752,14 +840,21 @@ Registrado para não contaminar o escopo. Nenhum destes entra antes da Onda 7:
 
 | # | Pergunta | Bloqueia | Prazo |
 |---|---|---|---|
-| 1 | `replication_factor`: `1` agora ou aguardar 3 nós? | Onda 4 | antes da Onda 4 |
-| 2 | PostgreSQL: StatefulSet + CronJob ou CloudNativePG? | Onda 3 | antes da Onda 3 |
-| 3 | `drop/`: PVC `ReadWriteMany` ou `hostPath`? | Onda 4 | antes da Onda 4 |
-| 4 | **Quem instala isto e qual pergunta quer responder?** | Onda 5 (`seed`) | antes da Onda 5 |
+| 1 | `replication_factor`: `1` agora ou aguardar 3 nós? | — | ✅ **respondida: `rf=1`** |
+| 2 | PostgreSQL: StatefulSet + CronJob ou CloudNativePG? | — | ✅ **respondida: StatefulSet** |
+| 3 | `drop/`: PVC `ReadWriteMany` ou `hostPath`? | — | ✅ **respondida: `hostPath`** |
+| 4 | **Quem instala e o que quer ver?** | — | ✅ **RESPONDIDA 2026-11-18:** quem quer controle sobre os próprios dados, coleta simples e custo baixo. Quer **conversar com os próprios dados** — um chat. Ver ADR-014 |
+| 5 | LLM do chat: Ollama (já roda) ou vLLM (ADR-010)? | Onda 5.3 | antes de 5.3 |
+| 6 | Chat sem LLM é degradação ou modo primário? | Onda 5.3 | antes de 5.3 |
 
-As três primeiras são técnicas e têm recomendação registrada na §13 da
-arquitetura. A quarta é de produto e **não tem recomendação** — sem ela, o
-dashboard mostra métrica que ninguém pediu.
+**As quatro primeiras estão fechadas.** As duas novas são consequência direta da
+resposta de produto e são menores: nenhuma delas muda arquitetura, só a
+implementação do chat.
+
+Nota sobre a nº 6 — é decisão de produto, não técnica: um lake que só funciona
+com GPU disponível contradiz "infraestrutura mínima". A minha recomendação é que
+o modo sem LLM (pergunta por filtro: origem, tipo, data) seja **primário e
+completo**, e o LLM um acelerador.
 
 ---
 

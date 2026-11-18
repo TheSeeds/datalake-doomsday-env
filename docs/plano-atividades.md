@@ -27,6 +27,17 @@
    decidido e o número de nós não justificar, `raw/` só recebe dado de teste.
 6. **Escopo travado.** Ideia nova vira linha na §9 ("Não fazer ainda"), não
    vira trabalho.
+7. **Toda onda concluída deixa rastro explícito neste documento.** Imediatamente
+   ao terminar, o bloco `### ✅ CONCLUÍDA — AAAA-MM-DD` é escrito na própria
+   onda, com: comando que provou, número de testes/arquivos, tabela de
+   entregável × estado, e **desvios registrados**. Onda sem bloco de conclusão
+   é onda não concluída, mesmo que o código exista.
+
+   E dentro do bloco, dois campos não são opcionais:
+   - **Desvios do previsto** — o que saiu diferente e por quê. Plano que só
+     registra acertos não serve para replanejar.
+   - **Pendências explícitas** — o que ficou incompleto, com o bloqueio que
+     isso cria. Nunca deixar pendência implícita: ela vira mentira por omissão.
 
 ---
 
@@ -35,7 +46,7 @@
 ```
 Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
-Onda 2  Schema do catálogo                      ~1 sessão
+Onda 2  Schema do catálogo                      ← próxima
 Onda 3  Cluster mínimo de pé                    ~1 sessão
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ~1-2 sessões
 Onda 5  Consulta e dashboard                    ~2 sessões
@@ -72,6 +83,37 @@ git clone <repo> && cd datalake-doomsday-env && make ci   # exit 0, sem infra
 
 **Risco.** Nenhum. É a onda mais barata e a que mais paga.
 
+### ✅ CONCLUÍDA — 2026-11-18
+
+**Prova executável:**
+```bash
+make ci-check      # exit 0
+```
+
+**24 arquivos versionados, 2 commits.** `make ci` roda sem cluster, sem rede e
+sem container — o que permite que as ondas 0–2 avancem com a infra desligada.
+
+| entregável | estado |
+|---|---|
+| repo `datalake-doomsday-env` com a estrutura da §8.1 | ✅ |
+| `README`, `.gitignore`, `.yml` do CI, `Makefile` | ✅ |
+| CI: pytest + helm lint + shellcheck + yamllint + guarda de segredos | ✅ |
+| plano migrado e versionado aqui; ponteiro no repo de conceito | ✅ |
+| `LICENSE` Apache 2.0 | ⚠️ **só o aviso**; texto integral pendente (ver abaixo) |
+
+**Desvios do previsto, registrados:**
+
+- `shellcheck`, `yamllint` e `helm` **não existiam** no host. Resolvido sem
+  dependência de pacote do sistema: `shellcheck-py` e `yamllint` via PyPI,
+  `helm` via `microk8s helm3` (já instalado). Isso mantém o alvo "Fedora dev /
+  Ubuntu homologação" funcionando sem `dnf install`.
+- `truthy` do yamllint acusava falso positivo em `on:` do GitHub Actions. Fixado
+  com `check-keys: false` — a chave é YAML 1.1 booleana, não valor booleano.
+- **Pendência explícita:** o `LICENSE` contém apenas o aviso, não o texto
+  integral do Apache 2.0. O CI **bloqueia tag de release** enquanto isso não for
+  corrigido. Consequência: **o repo não deve ser público até o texto integral
+  estar presente**, senão anuncia uma licença que não concedeu nada.
+
 ---
 
 ## Onda 1 — Núcleo de domínio puro (`lakecore`)
@@ -98,7 +140,7 @@ make test        # ingere o mesmo arquivo 2x → 1 Record; 100% verde
 **Risco.** Escopo inflado. Regra: `lakecore` **não** sabe o que é HTTP, S3,
 PostgreSQL ou Kubernetes. Só `path` → `Record`.
 
-### ✅ Concluída
+### ✅ CONCLUÍDA — 2026-11-18
 
 **Prova executável:**
 ```bash
@@ -114,9 +156,26 @@ make ingest-demo
 | `ports.py` | `ObjectStore`, `Catalog`, `Clock` como `Protocol` |
 | `layout.py` | `raw/{origem}/{tipo}/YYYY/MM/DD/{sha256}`, com saneamento de entrada |
 | `errors.py` | erros tipados; `DuplicateObjectError` distingue "já existia" de "falhou" |
-| `ingest.py` | `ingest()`, `hash_file()`, `classify()` |
+| `ingestion.py` | `ingest()`, `hash_file()`, `classify()` |
 | `fakes.py` | implementações em memória das portas |
 | `__main__.py` | CLI para exercitar o domínio sem infra |
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| `ingest.py` | renomeado para `ingestion.py` — colisão com a função `ingest()` sombreava o módulo (ADR-012) |
+| "colisão de hash (fixture)" nos testes | coberto de forma mais direta: conteúdo igual com nomes diferentes, e dedup por `sha256` |
+| `make test` como prova | provado por `make ingest-demo` — mais forte, exercita a CLI e a idempotência ponta a ponta |
+
+**Pendências explícitas:**
+
+- **Adaptadores reais não existem.** `ObjectStore` e `Catalog` só têm
+  implementação em memória. Enquanto isso durar, "ingerir" não persiste nada —
+  é Onda 2 e 3.
+- **Estado não sobrevive ao processo.** Consequência direta do item acima: rodar
+  `ingest-demo` duas vezes **não** prova idempotência entre execuções. A prova
+  válida exige adaptador persistente (Onda 4).
 
 **Decisões que o código carrega:**
 

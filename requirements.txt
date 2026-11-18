@@ -1,0 +1,2 @@
+# Onda 0: contrato de tipos apenas. Dependências reais entram por onda.
+# lakecore é stdlib-only por decisão: o núcleo não deve carregar SDK de nuvem.

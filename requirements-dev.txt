@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Ferramentas de desenvolvimento e CI.
+# Nota: shellcheck e yamllint entram por pip para que `make ci` funcione sem
+# dependência de pacote do sistema (o host de dev é Fedora, o alvo é Ubuntu).
+pytest==8.3.4
+shellcheck-py==0.10.0.1
+yamllint==1.35.1

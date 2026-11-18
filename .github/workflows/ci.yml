@@ -1,0 +1,88 @@
+name: datalake-env CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # Roda sem cluster, sem Garage, sem PostgreSQL.
+  # As ondas 0-2 precisam ficar verdes com a infraestrutura desligada.
+  unit:
+    name: lakecore (sem infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache do virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ env.PYTHON_VERSION }}-${{ hashFiles('requirements*.txt') }}
+
+      - name: make ci
+        run: make ci
+
+  # Valida que o Helm chart de um módulo/estado atual não quebrou.
+  # Enquanto não houver chart, o alvo reporta e passa.
+  chart:
+    name: Helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm lint (charts/*)
+        run: |
+          found=0
+          for chart in charts/*/; do
+            [ -f "${chart}Chart.yaml" ] || continue
+            found=1
+            echo "::group::lint ${chart}"
+            helm lint "${chart}"
+            echo "::endgroup::"
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "Nenhum chart presente ainda (Onda 4+)."
+          fi
+
+  # Guardrail de licença: o texto integral do Apache 2.0 é exigido no release.
+  license:
+    name: Licença e segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nenhum segredo versionado
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|\.pem$|\.key$|secrets/|\.secret\.yaml$'; then
+            echo "::error::arquivo sensível versionado"
+            exit 1
+          fi
+          echo "ok: nenhum segredo versionado"
+
+      - name: Apache 2.0 completo antes do release
+        run: |
+          # FALHA apenas quando existir tag de release; antes disso o LICENSE
+          # carrega só o aviso (ver LICENSE). Avisa, não bloqueia, na Onda 0.
+          if git describe --tags --exact-match >/dev/null 2>&1; then
+            grep -q "Apache License" LICENSE
+            grep -q "Version 2.0" LICENSE
+            lines=$(wc -l < LICENSE)
+            if [ "$lines" -lt 170 ]; then
+              echo "::error::LICENSE sem o texto integral do Apache 2.0 em tag de release"
+              exit 1
+            fi
+          else
+            echo "sem tag de release: LICENSE com aviso apenas (ok por ora)"
+          fi

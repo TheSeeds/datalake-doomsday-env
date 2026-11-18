@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Bundle e artefatos de build
+dist/
+build/
+*.tar.zst
+*.images.tar
+bundle/
+
+# Estado local do cluster (nunca versionar)
+runtime/
+*.kubeconfig
+kubeconfig
+
+# Segredos e ambiente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+*.secret.yaml
+
+# Dados do lake (nunca entram no git; vivem no Garage)
+raw/
+derived/
+backup/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

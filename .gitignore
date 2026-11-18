@@ -50,3 +50,7 @@ charts/*/Chart.lock
 # e definem a instalação.
 modules/*/vendor/images.tar
 modules/*/vendor/SHA256SUMS
+
+# Bundle offline: 4 GB de artefato, não fonte. Reconstruível com
+# `scripts/bundle.sh --apply` numa máquina com rede.
+dist/

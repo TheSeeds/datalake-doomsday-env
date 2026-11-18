@@ -11,7 +11,7 @@ VENV_PY := $(VENV)/bin/python
 .PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
 	cluster cluster-verify cluster-down secrets chat-demo chat-role \
-	restore-drill restore-drill-check export-parquet frescor clean
+	restore-drill restore-drill-check export-parquet frescor bundle bundle-check verify clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -35,10 +35,12 @@ help:
 	@echo "  make chat-demo   prova a 5.3: catalogo -> tela (sem LLM tambem)"
 	@echo "  make restore-drill  critério da Onda 6: restaura e compara com o original"
 	@echo "  make export-parquet  critério da 5.2: catalogo -> Parquet em derived/"
+	@echo "  make bundle      monta o bundle offline (4,1 GB)"
+	@echo "  make verify      critério da Onda 7: verifica a instalação de verdade"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: ondas 0-4 concluídas; 5.1 e 5.3 prontas. Ver docs/plano-atividades.md."
+	@echo "Estado: ondas 0-4 e 6 concluídas; 5.1/5.2/5.3/5.6 prontas; 7 com bundle+verify."
 
 setup: $(VENV_PY)
 
@@ -257,3 +259,16 @@ from lakecore.mcp import engine; \
 ok, sinais = resumo(engine()); \
 print('\n'.join(('  ok ' if s.estado=='saudavel' else '  !! ') + s.texto() for s in sinais) or '  (nenhum sinal registrado)'); \
 print('\nResumo: ' + ('tudo fresco' if ok else 'ATENCAO'))"
+
+# --- Onda 7: bundle offline ---------------------------------------------------
+# Monta o artefato que torna "instalável sem internet" testável.
+bundle:
+	scripts/bundle.sh --apply
+
+bundle-check:
+	scripts/bundle.sh
+
+# Critério de pronto da Onda 7, na instalação atual. Numa máquina limpa sem
+# rede, este é o mesmo comando que homologa.
+verify:
+	bash scripts/verify.sh

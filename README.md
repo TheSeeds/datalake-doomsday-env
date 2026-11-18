@@ -30,7 +30,7 @@ objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256
 | 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
 | 5 — conversar com os dados | 🟢 5.1 e 5.3 feitas | executor read-only + tela de chat via MCP, provada contra o catálogo |
 | 6 — backup e restore | ✅ | `make restore-drill`: dump do Garage → catálogo idêntico (contagem + md5) |
-| 7 — bundle offline | ⬜ | |
+| 7 — bundle offline | 🟡 | `make bundle` (4,1 GB) + `make verify` (12/12); falta VM sem rede |
 
 O plano completo, com o bloco de conclusão de cada onda, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).
@@ -175,3 +175,29 @@ Requisitos de desenvolvimento: Python 3.11+, e `microk8s` (o `helm` vem de
 ## Licença
 
 Apache 2.0. Ver [`LICENSE`](LICENSE).
+
+## Instalação offline
+
+```bash
+# numa máquina COM rede: monta o artefato
+make bundle              # dist/datalake-bundle-0.1.0/ — 4,1 GB
+
+# na máquina de destino, SEM rede
+sudo bash install.sh     # valida checksums ANTES de tocar no sistema
+sudo bash verify.sh      # 12 verificações que exercitam o caminho real
+```
+
+**O bundle não leva o acervo.** `raw/` é do usuário, não do instalador — levar o
+acervo de desenvolvimento entregaria dado de teste como se fosse o de quem
+instala. O `seed/` leva só o cenário de demonstração, declarado como tal.
+
+**`verify.sh` não imprime OK por imprimir.** Ele faz POST de verdade, confere
+que o segundo envio do mesmo arquivo é duplicado (idempotência por `sha256`),
+consulta o catálogo com `SELECT` autenticado (não `pg_isready`, que mente) e
+verifica se o backup registrou sucesso na tabela `saude`. Na primeira execução
+ele **encontrou um defeito real** — `kubectl cp` contra a imagem shell-less do
+Garage.
+
+**O que ainda não está provado:** instalar numa máquina limpa **sem rede**. Falta
+a VM Ubuntu 24.04. `verify.sh` na máquina que gerou o bundle testa cache, não
+instalação — e o plano declara esse risco desde a Onda 0.

@@ -4,8 +4,9 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0 a 4 e 6 concluídas. Onda 5 em andamento (5.1 e 5.3
-> prontas; 5.2/5.4/5.5 abertas). Onda 7 não começou.
+> **Status:** Ondas 0 a 4 e 6 concluídas. Onda 5 em andamento (5.1, 5.2, 5.3 e
+> 5.6 prontas; 5.4/5.5 abertas). Onda 7: bundle (4,1 GB) e `verify.sh` (12/12)
+> prontos; falta homologação em VM limpa sem rede, que é o critério de pronto.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -125,7 +126,7 @@ Onda 3  Cluster mínimo de pé                    ✅ feito
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
 Onda 5  Conversar com os dados (chat)           🟢 5.1 e 5.3 feitas; 5.2/5.4/5.5 abertas
 Onda 6  Backup e restore provado                ✅ feito (backup consertado + restore provado)
-Onda 7  Bundle offline                          ⬜ não começou  ~1-2 sessões
+Onda 7  Bundle offline                          🟡 bundle+verify feitos; homologação VM pendente
 ────────────────────────────────────────────────────────────
 Total                              ~9-11 sessões de trabalho
 ```
@@ -1223,6 +1224,85 @@ ambiente limpo, senão testa cache, não instalação.
 **Adendo da revisão 2.** `--gpu nvidia` passa a ser um caminho **testado**, não
 teórico, porque a máquina de desenvolvimento tem GPU. Ver §11. A ressalva da §9
 continua de pé: homologar GPU na VM do host não homologa GPU em ferro modesto.
+
+### 🟡 ONDA 7 — bundle e verificação FEITOS; homologação em VM PENDENTE
+
+**O que está provado por comando:**
+
+```bash
+scripts/bundle.sh --apply     # monta dist/datalake-bundle-0.1.0/ — 4,1 GB
+bash scripts/verify.sh        # 12/12 verificações ok na instalação atual
+```
+
+| arquivo | papel |
+|---|---|
+| `scripts/bundle.sh` | snaps + `images.tar` (3,9 GB) + charts + módulos + pinos + SHA256SUMS |
+| `scripts/install.sh` | 7 passos, idempotente, valida checksums **antes** de tocar no sistema |
+| `scripts/verify.sh` | 12 verificações que exercitam o caminho real |
+
+**O `verify.sh` pegou um defeito real na primeira execução** — o que prova que
+ele testa de verdade:
+
+```
+  FALHA não consegui copiar o arquivo para o pod
+```
+
+Era `kubectl cp` contra a imagem do Garage, que é **shell-less** (sem `/bin/sh`,
+sem `tar`). A lição já tinha sido paga na Onda 3 e reapareceu. Corrigido.
+
+**A idempotência é provada de fato, não afirmada:**
+```
+  ok    primeiro upload criou objeto (duplicate=false)
+  ok    segundo upload do mesmo arquivo é duplicado (idempotência por sha256)
+```
+
+**O bundle recusa instalar quando está corrompido.** Testado corrompendo um
+chart de propósito:
+```
+./charts/garage/values.yaml: FALHOU
+FALHOU: checksum não confere. Bundle corrompido — não instale.
+exit: 1
+```
+
+**Decisão: o bundle NÃO leva `raw/`.** O acervo é do usuário, não do instalador.
+Levar o acervo de desenvolvimento entregaria dado de teste como se fosse o de
+quem instala.
+
+**Números medidos:**
+
+| parte | tamanho |
+|---|---|
+| `images.tar` (48 imagens) | 3,9 GB |
+| snaps (microk8s + core20 + core24) | 293 MB |
+| charts + módulos | 1,3 MB |
+| **bundle total** | **4,1 GB** |
+
+**Defeitos pagos nesta onda:**
+
+| defeito | causa |
+|---|---|
+| `snap download` com canal `base` | a coluna de canal em `snap list` é a 4 (Tracking), não a 6 (Notes) |
+| `images export` falhava | 3 imagens com conteúdo ausente de imports interrompidos, + entradas por digest puro (`sha256:...`) que não são imagens nomeadas |
+| `kubectl cp` falha no Garage | imagem shell-less |
+| `component` vs `componente` | shellcheck pegou: a verificação de pods nunca teria funcionado |
+| `exit 0` parecendo sucesso | o `| tail` mascarava o exit code — a armadilha do `make ci | tail`, de novo |
+
+**Pendências explícitas — e a principal é a homologação:**
+
+- **NÃO há VM Ubuntu 24.04.** O critério de pronto do plano exige `verify.sh`
+  verde em máquina limpa **sem rede**. Isso não foi feito. O que existe:
+  bundle íntegro, `install.sh` que valida antes de instalar, e `verify.sh` que
+  passa na instalação atual. Falta o ambiente limpo — e o risco que o próprio
+  plano declara: `verify.sh` na máquina que gerou o bundle testa cache, não
+  instalação.
+- **`install.sh` nunca rodou de ponta a ponta num host limpo.** Rodou em
+  `--dry-run`, e a validação de checksum foi testada de verdade.
+- **`--gpu nvidia` não foi implementado.** O plano pedia; ficou de fora porque
+  sem a VM não há como testar, e path de GPU não testado é promessa, não entrega.
+- **`seed/` está vazio.** A demonstração cria arquivos na instalação.
+- **O bundle tem 4,1 GB** — maior do que o ideal para pendrive pequeno. As 48
+  imagens incluem as do módulo `observability`, que é opcional; um bundle
+  "mínimo" poderia ser ~2,4 GB.
 
 ---
 

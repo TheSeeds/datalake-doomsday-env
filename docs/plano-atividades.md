@@ -4,8 +4,14 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** aprovado como plano. Nenhuma onda iniciada.
-> Migra para o repositório `datalake-doomsday-env` na Onda 0, onde passa a viver.
+> **Status:** aprovado como plano. Onda 0 concluída.
+> Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
+> permanecem em `datalake-doomsday`.
+>
+> **Revisão 2 (2026-11-18):** hardware verificado — a máquina tem
+> **GPU NVIDIA RTX 3050 Laptop, 4 GB de VRAM**, não "sem GPU" como a arquitetura
+> supunha. Isso não antecipa IA no plano; muda o que precisa ser medido e
+> introduz o conceito de *piso de GPU*. Ver §11.
 
 ---
 
@@ -228,11 +234,15 @@ testado é esperança, não backup.
 **Pronto quando**
 ```bash
 # máquina limpa, sem rede
-sudo bash install.sh --engine standard --gpu none && sudo bash verify.sh
+sudo bash install.sh --engine standard --gpu nvidia && sudo bash verify.sh
 ```
 
 **Risco.** `verify.sh` rodando na mesma máquina que gerou o bundle. Precisa ser
 ambiente limpo, senão testa cache, não instalação.
+
+**Adendo da revisão 2.** `--gpu nvidia` passa a ser um caminho **testado**, não
+teórico, porque a máquina de desenvolvimento tem GPU. Ver §11. A ressalva da §9
+continua de pé: homologar GPU na VM do host não homologa GPU em ferro modesto.
 
 ---
 
@@ -280,3 +290,61 @@ Registrado para não contaminar o escopo. Nenhum destes entra antes da Onda 7:
 As três primeiras são técnicas e têm recomendação registrada na §13 da
 arquitetura. A quarta é de produto e **não tem recomendação** — sem ela, o
 dashboard mostra métrica que ninguém pediu.
+
+---
+
+## 11. Hardware verificado (revisão 2)
+
+Medido em 2026-11-18 na máquina de desenvolvimento. A arquitetura v2 foi escrita
+supondo "GPU opcional, provavelmente ausente". **Estava errada** — e a correção
+muda o que precisa ser medido, não o que precisa ser entregue.
+
+### 11.1 O que existe
+
+| item | medido |
+|---|---|
+| GPU | NVIDIA GeForce RTX 3050 Laptop |
+| VRAM | **4096 MiB, com ~3666 MiB já em uso** por um `VLLM::EngineCore` |
+| Driver / CUDA | 580.159.03 / CUDA 13.0 |
+| Runtime | `nvidia-ctk` e `nvidia-container-runtime` presentes |
+| Addon microk8s | `nvidia` disponível (e `gpu` como alias) |
+| Ollama | ativo, modelo `qwen2.5-coder:7b` (4,7 GB) |
+
+### 11.2 Por que isso **não** antecipa IA no plano
+
+O modelo de 7B tem 4,7 GB em disco e não cabe em 4 GB de VRAM junto com o que já
+está rodando. Hoje a GPU é um recurso **disputado**, não disponível. Um lake cuja
+única GPU está 90% ocupada por outro serviço não tem um caminho de IA confiável.
+
+Conclusão: a Onda 5 e o módulo `ai-assistant` continuam pós-Onda 7 (§9). O que
+muda é que a **capacidade** deixa de ser especulação e vira restrição medida.
+
+### 11.3 Piso de GPU — conceito novo
+
+O eixo `gpu` da arquitetura (`none` / `nvidia` / `amd`) descreve *fabricante*.
+Isso é insuficiente: 4 GB e 24 GB de VRAM são o mesmo "nvidia" e viabilizam
+coisas diferentes. Introduzimos o **piso de VRAM** por módulo:
+
+| módulo | piso de VRAM | nota |
+|---|---|---|
+| embed de pequeno porte | 2 GB | viável nesta máquina **se** o vLLM ceder espaço |
+| LLM 7B quantizado | 6 GB | **não cabe** aqui |
+| LLM 13B+ | 12 GB+ | fora de escopo v1 |
+
+O `module.yaml` (§7 da arquitetura) passa a declarar `requires.vram: 6Gi` em vez
+de apenas `requires.gpu: optional`. Um módulo que não satisfaz o piso deve
+**recusar instalação com mensagem clara**, não degradar silenciosamente para CPU
+e entregar 1 token/s — degradação silenciosa é a mesma mentira do
+`estado-validado.md`.
+
+### 11.4 Consequência para os entregáveis
+
+| onda | ajuste |
+|---|---|
+| 3 | nada. GPU não entra em infraestrutura de dados |
+| 7 | `--gpu nvidia` vira caminho exercitado no `verify.sh` (ao menos: RuntimeClass presente e `nvidia-smi` de dentro de um pod) |
+| pós-7 | teste de contenção de VRAM: `nvidia-smi` mostrando uso **exclusivo** antes de qualquer medição de IA |
+
+**Regra registrada:** nenhuma medição de desempenho de IA é válida enquanto a
+GPU estiver compartilhada com outro processo. Medir sob contenção não mede o
+modelo — mede a disputa.

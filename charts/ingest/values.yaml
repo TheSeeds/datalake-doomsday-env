@@ -1,18 +1,40 @@
-# Ingestão — desligado por padrão (Onda 4).
-#
-# Quando ligar, estes são os valores que a Onda 4 vai precisar decidir:
-#   - `drop.enabled`: PVC ReadWriteMany custa caro em microk8s; hostPath é a
-#     alternativa. Decisão adiada até existir o primeiro caso de uso real.
-#   - `replicas`: 1 no perfil micro/standard.
+# Ingestão — portas de entrada do lake.
 
-enabled: false
+enabled: true
 
 image:
-  repository: ghcr.io/theseeds/datalake-ingest
+  repository: lakecore-ingest
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
+#: Limite por upload HTTP. Acima disso, arquivo vai por `drop/`.
+tamanhoMaximoUpload: "64Mi"
+
+api:
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+#: Por que hostPath e não PVC:
+#: PVC ReadWriteMany em microk8s de 1 nó é limitado e caro. `drop/` precisa que
+#: um humano copie arquivos do host para a pasta — hostPath é o caminho direto, e
+#: é o mesmo modelo do Garage. Registrado como desvio no plano.
 drop:
   enabled: true
-  #: hostPath porque ReadWriteMany não está disponível no perfil de 1 nó.
-  path: /var/lib/datalake/drop
+  hostPath: /var/lib/datalake/drop
+  #: Varredura a cada 5 min. Frequência baixa de propósito: `drop/` é caminho de
+  #: exceção, não o fluxo normal (esse é HTTP).
+  schedule: "*/5 * * * *"
+  #: Depois de ingerido, o arquivo é movido para aqui em vez de apagado.
+  #: Apagar o original antes de confirmar o catálogo perderia dado em caso de erro.
+  arquivar: true
+
+#: O papel `ingest` escreve em `raw/` e NÃO lê (ADR-011). A chave S3 vive em
+#: Secret criada fora do chart — `helm get values` vazaria credencial.
+s3:
+  existingSecret: lakecore-s3-ingest
+  bucket: raw
+
+db:
+  existingSecret: lakecore-db-secret

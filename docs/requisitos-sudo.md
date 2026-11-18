@@ -67,6 +67,57 @@ rodadas de tentativa e erro.
 
 ## 🟡 P2 — storage class nativa (opcional, não bloqueia)
 
+---
+
+## 🔴 P4 — rota blackhole do Calico (BLOQUEIA a Onda 4)
+
+**Sintoma.** Pod → pod e Service → pod falham com `No route to host`. Service
+`ClusterIP` funciona (DNAT no kube-proxy), mas qualquer tráfego até o **IP do
+pod** é descartado.
+
+**Medido em 2026-11-18.** Host tem:
+
+```
+blackhole 10.1.74.192/26                      ← cobre .192 a .255
+vxlan.calico  inet 10.1.74.192/32
+```
+
+Todos os pods do cluster caem nessa faixa: `.194`, `.201`, `.213`, `.214`,
+`.226`, `.249`. **Nenhum** é alcançável por IP.
+
+**Causa provável.** O `calico-node` está com **1301 restarts** e reiniciou às
+`02:30` de hoje — durante o `refresh-certs`. A rota `blackhole` para o próprio
+podCIDR é o que o Calico instala quando **não sabe** para onde rotear a faixa: em
+vez de encaminhar, descarta. É estado inconsistente do dataplane, não
+configuração intencional.
+
+**Comando (exige root):**
+
+```bash
+sudo systemctl restart snap.microk8s.daemon-containerd
+sudo microk8s stop && sudo microk8s start
+```
+
+Se a rota voltar após o restart, o dataplane está preso e a alternativa é:
+
+```bash
+sudo ip route del blackhole 10.1.74.192/26
+```
+
+…mas remover a rota **sem** corrigir a origem faz o Calico recriá-la no próximo
+reconcile. O restart é a correção; o `ip route del` é paliativo para confirmar o
+diagnóstico.
+
+**O que fica bloqueado.** A Onda 4 está **escrita e testada no host** (8 testes
+de integração contra Garage e PostgreSQL reais, todos verdes), mas o chart não
+consegue rodar no cluster: `ingest-api` não alcança o catálogo. Sem isso, o
+critério "arquivo → objeto **e** linha" não pode ser demonstrado no cluster.
+
+**Por que não contornei.** Contornar exigiria mexer em rotas do host sem root, o
+que é exatamente o tipo de ação que a regra 9 manda pedir em vez de assumir.
+
+---
+
 O addon oficial do microk8s grava em `$SNAP_COMMON/default-storage`:
 
 ```bash

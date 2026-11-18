@@ -3,9 +3,17 @@ name: ingest
 description: |
   Portas de entrada do lake.
 
-  Placeholder da Onda 4: o chart existe agora para que o umbrella resolva a
-  dependência, mas `ingest.enabled` é `false` por padrão. Nada aqui foi provado
-  ainda — e chart não provado não deve ligar por default.
+  Dois gatilhos, um primitivo (`upload`):
+
+    HTTP (Deployment)  →  POST /uploads
+    drop/ (CronJob)    →  varre o PVC/hostPath
+
+  Ambos chamam `lakecore.ingest()`. Se a lógica fosse duplicada aqui, o desenho
+  estaria errado — a Onda 1 existe para isso.
+
+  A porta `drop/` é o diferencial do projeto: funciona com o serviço FORA do ar.
+  Em cenário degradado alguém copia arquivos na pasta e o dado entra quando o
+  lake voltar.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

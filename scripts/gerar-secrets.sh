@@ -51,6 +51,23 @@ criar_se_ausente lakecore-db-secret \
   --from-literal=POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)" \
   --from-literal=POSTGRES_DB=lakecore
 
+# --- Chave S3 do papel `ingest` ----------------------------------------------
+# Write-only no prefixo raw/ (ADR-011): o ingestor grava mas não lê o acervo.
+# As credenciais vêm do Garage, criadas por garage-bootstrap; aqui só as
+# transportamos para um Secret para que o chart não precise de segredo em values.
+if kc -n "${NAMESPACE}" get secret lakecore-s3-ingest >/dev/null 2>&1; then
+  printf '%-28s já existe (mantido)\n' lakecore-s3-ingest
+else
+  echo
+  echo "ATENÇÃO: lakecore-s3-ingest precisa das credenciais reais do Garage."
+  echo "  key id e secret são criados com:"
+  echo "    microk8s kubectl -n ${NAMESPACE} exec \$(garage pod) -- /garage -c /etc/garage.toml key info <nome> --show-secret"
+  echo "  e então:"
+  echo "    microk8s kubectl -n ${NAMESPACE} create secret generic lakecore-s3-ingest \\"
+  echo "      --from-literal=S3_ACCESS_KEY=<key id> --from-literal=S3_SECRET_KEY=<secret>"
+  echo "  Criado automaticamente por scripts/bootstrap-s3.sh."
+fi
+
 echo
 echo "segredos prontos em ns=${NAMESPACE}."
 echo "NÃO os commite, nem os coloque em values.yaml."

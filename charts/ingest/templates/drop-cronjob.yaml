@@ -1,0 +1,67 @@
+{{- if .Values.drop.enabled }}
+# Job periódico que processa `drop/`.
+#
+# A porta que funciona com o serviço FORA do ar: em cenário degradado alguém
+# copia arquivos na pasta do host e o dado entra quando o lake voltar.
+#
+# Por que CronJob e não parte do Deployment: a varredura é trabalho efêmero, com
+# início e fim. Rodar em loop dentro da API misturaria dois planos (serviço e
+# tarefa) e faria o processo de longa duração carregar lógica de lote.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "ingest.fullname" . }}-drop
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ingest.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.drop.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "ingest.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            fsGroup: 10001
+          containers:
+            - name: drop-scan
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "-m", "lakecore.drop_scan"]
+              env:
+                {{- include "ingest.env" . | nindent 16 }}
+                - name: DROP_ARQUIVAR
+                  value: {{ .Values.drop.arquivar | quote }}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                # hostPath: o humano copia do host direto para a pasta. É o
+                # caminho que funciona sem PVC ReadWriteMany.
+                - name: drop
+                  mountPath: {{ .Values.drop.hostPath }}
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: drop
+              hostPath:
+                path: {{ .Values.drop.hostPath }}
+                type: DirectoryOrCreate
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+{{- end }}

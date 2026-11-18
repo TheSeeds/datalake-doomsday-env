@@ -104,7 +104,7 @@ Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
-Onda 4  Ingestão ponta a ponta  ← A PROVA       ← próxima
+Onda 4  Ingestão ponta a ponta  ← A PROVA       🟡 código pronto, cluster bloqueado
 Onda 5  Consulta e dashboard                    ~2 sessões
 Onda 6  Backup e restore provado                ~1 sessão
 Onda 7  Bundle offline                          ~1-2 sessões
@@ -564,6 +564,68 @@ make ingest-demo
 
 **Risco.** Acoplar regra de negócio ao Job. Se a lógica não estiver em `lakecore`,
 da Onda 1, a Onda 4 está errada — voltar, não contornar.
+
+### 🟡 CÓDIGO PRONTO E TESTADO — 2026-11-18 — **BLOQUEADA NO CLUSTER**
+
+Onda **incompleta por bloqueio de infraestrutura**, não de implementação.
+
+**O que está pronto e provado:**
+
+```bash
+# 8 testes de integração contra Garage e PostgreSQL REAIS
+S3_ENDPOINT=... LAKECORE_TEST_PG_URL=... make test-integration
+# 8 passed in 2.62s
+```
+
+| artefato | estado |
+|---|---|
+| `src/lakecore/adapters/s3_store.py` | ✅ `put`/`exists`/`garantir_bucket` |
+| `src/lakecore/api/main.py` | ✅ `/uploads`, `/health` (faz `SELECT 1`), `/objects/{sha}` |
+| `src/lakecore/drop_scan.py` | ✅ varre `drop/`, arquiva sem apagar antes de confirmar |
+| `charts/ingest` | ✅ Deployment + CronJob do `drop/`, `helm lint` ok |
+| `scripts/bootstrap-s3.sh` | ✅ cria chave e Secret de forma idempotente |
+| `Dockerfile` | ✅ multi-stage, não-root, `exec form` para SIGTERM |
+
+**Três provas por medição, não por configuração:**
+
+1. **Write-only é real.** Com a chave de `ingest`: `PUT` → ok, `GET` → `AccessDenied`.
+   A política do ADR-011 está medida, não afirmada.
+2. **Idempotência ponta a ponta.** Mesmo arquivo 2×: 1 linha em `objects`, 1 objeto
+   no storage, `duplicate=True` na segunda.
+3. **Objeto de 2 MiB gera bloco em disco** (não inlinado no LMDB como os <1 MiB).
+
+**BLOQUEIO — rede do cluster (P4 em `requisitos-sudo.md`):**
+
+```
+blackhole 10.1.74.192/26     ← cobre TODOS os pods
+vxlan.calico inet 10.1.74.192/32
+calico-node: 1301 restarts, reiniciou 02:30 (durante refresh-certs)
+```
+
+Pod → pod e Service → pod dão `No route to host`. `ClusterIP` funciona (DNAT),
+IP de pod não. `ingest-api` sobe mas não alcança o catálogo.
+
+**Pedido ao usuário:**
+```bash
+sudo microk8s stop && sudo microk8s start
+```
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| `drop/` como PVC ReadWriteMany | `hostPath` — decidido em §10, é o mesmo modelo do Garage |
+| chave S3 criada no bootstrap do chart | `scripts/bootstrap-s3.sh` fora do chart: credencial não pode vir do Helm |
+| `key create` idempotente | **não é** — criar duas vezes gera duas chaves com o mesmo nome, e `key info <nome>` passa a responder "N matching keys". Corrigido com verificação prévia |
+| `boto3==1.35.76` | atualizado a `1.44.5`: a versão antiga usa `utcnow()`, deprecado, e `filterwarnings=error` quebrava a suíte |
+
+**Pendências explícitas:**
+
+- **O critério da onda não foi demonstrado no cluster.** Só no host, via
+  `port-forward`. A diferença importa: o teste prova o código, não a instalação.
+- **CronJob do `drop/` nunca executou** (`*/5` mas o cluster está sem rede).
+- **`ingest-api` está `0/1`**, em `CrashLoopBackOff` de leitura, porque o probe
+  falha ao não alcançar o Postgres — comportamento correto do probe.
 
 ---
 

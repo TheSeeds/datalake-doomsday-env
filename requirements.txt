@@ -13,3 +13,10 @@ alembic==1.14.0
 # (lição registrada no geoflow) porque não há ganho real neste volume e o custo
 # de manter duas pilhas de I/O é alto.
 psycopg[binary]==3.2.3
+
+# Ingestão (Onda 4): HTTP + cliente S3.
+# `boto3` só é importado por `lakecore.adapters` — o domínio continua stdlib-only.
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.12
+boto3==1.44.5

@@ -8,7 +8,7 @@ VENV := .venv
 VENV_PY := $(VENV)/bin/python
 
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
-.PHONY: help setup ci ci-check ci-full test test-pg test-all lint lint-sh lint-yaml lint-helm \
+.PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
 	cluster cluster-verify cluster-down secrets clean
 
@@ -23,6 +23,7 @@ help:
 	@echo "  make ingest-demo  prova o critério da Onda 1 (2x o mesmo arquivo → 1)"
 	@echo "  make pg-up      sobe PostgreSQL efêmero para os testes (porta 55432)"
 	@echo "  make test-pg    battery completa contra PostgreSQL real"
+	@echo "  make test-integration  adaptadores contra Garage+PG reais (Onda 4)"
 	@echo "  make migrate    aplica as migrações (usa LAKECORE_DATABASE_URL)"
 	@echo "  make migrate-up-down  prova upgrade -> downgrade -> upgrade"
 	@echo "  make secrets    gera os Secrets do cluster (idempotente, fora do Helm)"
@@ -32,7 +33,7 @@ help:
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: Onda 3. Charts escritos; cluster depende de addons (docs/requisitos-sudo.md)."
+	@echo "Estado: Onda 4 escrita e testada no host; cluster bloqueado por rede (P4)."
 
 setup: $(VENV_PY)
 
@@ -190,6 +191,18 @@ cluster-verify:
 cluster-down:
 	$(HELM) uninstall $(RELEASE) --namespace $(NS_LAKE) || true
 	@echo "release removido. PVs do hostpath NÃO foram apagados de propósito."
+
+# --- integração (Onda 4) ------------------------------------------------------
+# Exige Garage e PostgreSQL ALCANÇÁVEIS. No host, via port-forward:
+#   kubectl -n lake-data port-forward svc/garage 13900:3900 &
+#   kubectl -n lake-data port-forward svc/postgresql 15432:5432 &
+# Requer S3_ENDPOINT/S3_ACCESS_KEY/S3_SECRET_KEY e LAKECORE_TEST_PG_URL.
+test-integration: setup
+	@if [ -z "$$LAKECORE_TEST_PG_URL" ]; then \
+		echo "LAKECORE_TEST_PG_URL não definida — pulando integração"; \
+		exit 0; \
+	fi
+	$(VENV_PY) -m pytest tests/integration -q
 
 clean:
 	rm -rf $(VENV) .pytest_cache

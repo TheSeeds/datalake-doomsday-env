@@ -18,7 +18,7 @@ postgresql:
   enabled: true
   tier: standard
 
-#: Ingestão. Existe a partir da Onda 4 — mantido desligado até lá para que
-#: `make cluster` instale só o que foi provado.
+#: Ingestão (Onda 4). Ligada: a prova ponta a ponta já passou em teste de
+#: integração contra Garage e PostgreSQL reais.
 ingest:
-  enabled: false
+  enabled: true

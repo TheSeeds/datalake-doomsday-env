@@ -17,6 +17,20 @@ psycopg[binary]==3.2.3
 # Ingestão (Onda 4): HTTP + cliente S3.
 # `boto3` só é importado por `lakecore.adapters` — o domínio continua stdlib-only.
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+# `starlette`, `uvicorn` e `sse-starlette` pinadas de propósito: `mcp` declara
+# pisos frouxos (`starlette>=0.27`, `uvicorn>=0.31.1`), então o resolver sobe
+# para as versões mais novas e quebra `fastapi 0.115`, que exige
+# `starlette<0.39`. O sintoma é silencioso: o import do FastAPI continua
+# funcionando e o ingest-api só falha em runtime. Fixar aqui é o que impede
+# "instalou e funcionou ontem" de voltar. O conjunto abaixo foi verificado com
+# `pip install --dry-run` como o único compatível com as duas pilhas.
+starlette==0.38.6
+uvicorn[standard]==0.32.1
+sse-starlette==2.1.3
 python-multipart==0.0.12
 boto3==1.44.5
+
+# Ponte para a tela de chat (Onda 5.3): servidor MCP que expõe o catálogo.
+# Só `lakecore.mcp` importa este pacote; o domínio e o executor continuam
+# sem saber que existe uma tela.
+mcp==1.30.0

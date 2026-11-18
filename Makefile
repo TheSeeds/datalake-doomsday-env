@@ -10,7 +10,7 @@ VENV_PY := $(VENV)/bin/python
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
 .PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
-	cluster cluster-verify cluster-down secrets clean
+	cluster cluster-verify cluster-down secrets chat-demo chat-role clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -30,10 +30,12 @@ help:
 	@echo "  make cluster    instala o lake no microk8s (exige addons)"
 	@echo "  make cluster-verify  critério de pronto da Onda 3"
 	@echo "  make cluster-down    remove o release"
+	@echo "  make chat-role   cria a role read-only do chat (defesa 4)"
+	@echo "  make chat-demo   prova a 5.3: catalogo -> tela (sem LLM tambem)"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: Onda 4 escrita e testada no host; cluster bloqueado por rede (P4)."
+	@echo "Estado: ondas 0-4 concluídas; 5.1 e 5.3 prontas. Ver docs/plano-atividades.md."
 
 setup: $(VENV_PY)
 
@@ -192,6 +194,22 @@ cluster-down:
 	$(HELM) uninstall $(RELEASE) --namespace $(NS_LAKE) || true
 	@echo "release removido. PVs do hostpath NÃO foram apagados de propósito."
 
+# Chat (Onda 5.3). `chat-role` é a defesa 4: sem ela o executor protege só pelo
+# parsing, e nenhum teste de parsing garante alguma coisa contra mim estar errado.
+chat-role:
+	scripts/criar-role-readonly.sh --apply
+
+# Prova da 5.3: pergunta em português -> resposta + SQL, vinda do banco.
+# `lake_buscar` responde sem LLM; o Hermes é o acelerador, não o requisito.
+chat-demo:
+	@scripts/conectar-chat.sh
+	@echo
+	@echo "== caminho determinístico (sem LLM) =="
+	@LAKECORE_DATABASE_URL="$$(cat $$HOME/.hermes/lake-url.local)" PYTHONPATH=src \
+		$(VENV_PY) -c "from lakecore.mcp import lake_estado; print(lake_estado())"
+	@echo
+	@echo "Abrir a tela:  hermes webapp"
+	@echo "Perguntar:     hermes -z \"quantos objetos por origem eu tenho?\""
 # --- integração (Onda 4) ------------------------------------------------------
 # Exige Garage e PostgreSQL ALCANÇÁVEIS. No host, via port-forward:
 #   kubectl -n lake-data port-forward svc/garage 13900:3900 &

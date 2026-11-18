@@ -4,7 +4,7 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 pronta).
+> **Status:** Ondas 0 a 4 concluídas. Onda 5 em andamento (5.1 e 5.3 prontas).
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -122,7 +122,7 @@ Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
 Onda 3  Cluster mínimo de pé                    ✅ feito
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ✅ feito
-Onda 5  Conversar com os dados (chat)           🟢 5.1 feita
+Onda 5  Conversar com os dados (chat)           🟢 5.1 e 5.3 feitas
 Onda 6  Backup e restore provado                ~1 sessão
 Onda 7  Bundle offline                          ~1-2 sessões
 ────────────────────────────────────────────────────────────
@@ -715,7 +715,7 @@ obrigatórias, todas testáveis:
 |---|---|---|
 | 5.1 | executor SQL read-only + testes de recusa | sem isso o chat é um vetor de destruição |
 | 5.2 | export Parquet do catálogo | dá ao chat algo para consultar sem bater no OLTP |
-| 5.3 | `chat-api` com LLM plugável | Ollama/vLLM já rodam na máquina |
+| ~~5.3~~ | ~~`chat-api` com LLM plugável~~ **REVISADO** → servidor MCP + Hermes Agent como tela | o runtime de agente já existe; reescrevê-lo era refazer o que funciona |
 | 5.4 | UI de chat | só depois de 5.1–5.3 provados |
 | 5.5 | painel secundário + e2e | fecha a guardrail de Playwright |
 
@@ -774,6 +774,142 @@ palavra não.
 - **5.2 a 5.5 não começaram:** export Parquet, `chat-api`, UI, e2e.
 - **`SET LOCAL statement_timeout` não é verificado em SQLite** — o teste roda nele
   e o `except` engole. Precisa de um teste contra PostgreSQL real na 5.2.
+
+---
+
+### ✅ 5.3 CONCLUÍDA — 2026-11-18 — tela de chat via MCP (Hermes Agent)
+
+**Decisão do usuário nesta sessão:** Hermes é o caminho principal; usar
+**OpenRouter**; o Hermes passa a ser **exclusivo deste projeto**; `vllm-study`
+é descartado. A escolha da UI foi delegada a mim.
+
+**Prova executável:**
+```bash
+make ci-check                                   # 130 testes, 7 pulados (sem PG)
+scripts/criar-role-readonly.sh --apply          # prova que o banco recusa escrita
+hermes mcp list                                 # 4 ferramentas do servidor lake
+hermes -z "Quantos objetos por tipo eu tenho?"   # resposta + SQL, vinda do banco
+hermes webapp --status                          # Serving at http://127.0.0.1:9120
+```
+
+**O que foi entregue:**
+
+| arquivo | papel |
+|---|---|
+| `src/lakecore/mcp/__init__.py` | servidor MCP, 4 ferramentas, stdio |
+| `src/lakecore/mcp/__main__.py` | permite `python -m lakecore.mcp` |
+| `tests/test_mcp.py` | 29 testes: as ferramentas não escrevem |
+| `scripts/criar-role-readonly.sh` | **defesa 4**: role `lakecore_chat` sem escrita |
+| `scripts/conectar-chat.sh` | ponte host→cluster e URL local da tela |
+
+**As quatro ferramentas:** `lake_esquema`, `lake_buscar`, `lake_sql`, `lake_estado`.
+
+**A arquitectura, e por quê:**
+
+```
+Hermes Agent (tela)  →  MCP (stdio)  →  lakecore-mcp  →  credencial read-only  →  Postgres
+```
+
+O Hermes é **cliente, não dono do host**. Um runtime de agente que ganha
+`terminal` e `file` vira administrador da máquina — e a tela aqui serve para
+conversar com dados. Por isso, além do MCP, foram **desabilitadas** as
+ferramentas `terminal`, `file`, `code_execution`, `browser`, `computer_use`,
+`web`, `image_gen`, `tts` e `delegation`. Derrubar o Hermes não derruba a
+ingestão, o backup nem o catálogo.
+
+**A defesa 4 existe agora — e é a única que não depende do meu código:**
+
+```
+SELECT em objects  -> 1
+DELETE em objects  -> ERROR:  permission denied for table objects
+```
+
+Prova adicional: **contornando o executor**, chamando o banco direto com a
+credencial do chat, as três defesas de parsing são ignoradas — e o banco recusa
+sozinho:
+```
+'delete from objects'          -> permission denied for table objects
+'drop table objects'           -> must be owner of table objects
+'update objects set origem=1'  -> permission denied for table objects
+```
+
+**O teste que importa não é o caminho feliz.** Pedi ao Hermes, em português e
+com "tenho certeza do que estou pedindo", para **apagar todos os objetos**. Ele
+recusou, explicou que a porta não existe, e as 11 linhas continuaram lá
+(`select count(*)` → 11). Pedi também para executar `rm -rf` — sem ferramenta de
+terminal, não fez.
+
+**O que foi ingerido para provar:** 10 arquivos heterogêneos (3 texto WhatsApp,
+2 foto, 4 e-mail, 1 PDF) por `POST /uploads`, todos `201`. Reenvio do mesmo
+arquivo → `duplicate: true`. Catálogo: 11 objetos, 16.242 bytes, 4 origens,
+3 tipos. O chat respondeu 8 texto / 2 foto / 1 pdf — número que eu confiro à mão.
+
+**Escolha de modelo, por medição e não por preferência:** benchmark em
+PostgreSQL real (o de SQLite estava errado — `ILIKE` é válido em produção) com
+15 perguntas de dificuldade crescente, incluindo JSONB, `HAVING`, subconsulta e
+porcentagem. Três modelos baratos empataram em **15/15**: `gpt-oss-20b`,
+`ling-3.0-flash` e `deepseek-v3.2`. O placar não discriminou SQL correto.
+
+O que discriminou foi **alucinação**: perguntas impossíveis com o schema real
+(coluna `proprietario`, `avaliacao_estrelas`, etiqueta `urgente`), onde a
+resposta certa é admitir que não existe:
+
+| modelo | recusa corretamente |
+|---|---|
+| `deepseek/deepseek-v3.2` | **3/3** |
+| `anthropic/claude-haiku-4.5` | 3/3 |
+| `openai/gpt-oss-20b` | 2/3 |
+| `inclusionai/ling-3.0-flash` | 1/3 |
+
+**Escolhido: `deepseek/deepseek-v3.2`** — 3/3 em não inventar, 15/15 em SQL,
+163k de contexto, US$ 0,26/M entrada e 0,38/M saída. `claude-haiku-4.5` empatou
+em acerto e custa 4× mais; fica como reserva.
+
+**UI escolhida: `hermes webapp` (oficial), não `hermes-webui` (terceiro).**
+Motivo: o oficial serve o **mesmo** renderer do Desktop, no mesmo gateway, com
+as mesmas sessões — não é um cliente paralelo que precisa ser mantido em sincronia.
+O `hermes-webui` de terceiros (19,5k★) reimplementa a camada; mais uma peça para
+divergir. Verificado: HTTP 200 em `127.0.0.1:9120`.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| 5.3 = `chat-api` próprio com LLM plugável | **substituído** por servidor MCP + Hermes. Motivo: o runtime de agente, a memória e o gateway de mensagens já existem e são melhores do que qualquer `chat-api` desta onda |
+| LLM local (vLLM) como runtime | **OpenRouter**, decidido pelo usuário. A VRAM foi liberada: `vllm-study` parado e removido, **3.754 MiB livres** |
+| 4 camadas de defesa | continuam 4; a nº 4 (credencial) **passou a existir nesta sessão** |
+| benchmark decide o modelo | o placar de SQL empatou; quem decidiu foi o teste de alucinação |
+
+**Armadilhas pagas nesta sessão (não repetir):**
+
+| sintoma | causa real |
+|---|---|
+| `pip` instalava e o ingest-api quebrava em runtime | `mcp` declara `starlette>=0.27`; o resolver subia para 1.x, incompatível com `fastapi 0.115` (`<0.39`). Pinar `starlette==0.38.6`, `uvicorn==0.32.1`, `sse-starlette==2.1.3` |
+| tela pendurada esperando o MCP | `python -m lakecore.mcp` falhava: pacote sem `__main__.py`. Criado |
+| `Name or service not known` na tela | o Secret aponta `postgresql:5432` (Service **dentro** do cluster); o MCP roda no host. Usar `scripts/conectar-chat.sh`, que mantém a ponte |
+| troquei o `.env` e a tela continuou com a URL velha | o **gateway** já rodava e tinha o `.env` em memória; ele é quem inicia o MCP. Reiniciar o gateway, não só editar |
+| `hermes gateway restart` travou 300s | havia sessão de chat viva (`manage_connections`). `stop --yes` para interromper de propósito |
+| `SET LOCAL` e `information_schema` funcionavam em PG e quebravam em SQLite | mesmo padrão "só funciona no dialeto certo". `aplicar_timeout()` devolve bool (testável); schema vem de `Base.metadata`, não de `information_schema` |
+| nome da constraint não casava | a convenção de metadata prefixa: `ck_objects_status_valido`. Comparar sufixo |
+| meu benchmark reprovava 3 modelos corretos | erro **meu**: ordem de colunas invertida, `e`+63 zeros em vez de `e`×64, `AVG` arredondado. Corrigi a expectativa, não o modelo |
+
+**Pendências explícitas:**
+
+- **`lakecore-mcp` roda no host, não no cluster.** É desvio declarado: o MCP é
+  subprocesso da tela, e a tela é local. Na Onda 7 (bundle offline) ou na 5.5
+  ele vai para dentro do cluster, ao lado do Postgres, e
+  `scripts/conectar-chat.sh` deixa de ser necessário.
+- **O gateway do Hermes não é serviço.** Roda com `setsid hermes gateway run`.
+  Instalar como serviço (`hermes gateway install`) é opcional e ficou de fora —
+  é mudança de host, não do projeto.
+- **A ponte `port-forward` morre com o host.** `scripts/conectar-chat.sh` a
+  recria; não há supervisão automática.
+- **Sobreviver a restart do pod não foi testado** para a role `lakecore_chat`
+  (ela vive no PVC do Postgres).
+- **5.2 (Parquet) não foi feita** e continua fazendo sentido: o chat hoje
+  consulta o OLTP direto. Com acervo grande isso deixa de servir.
+- **5.4/5.5:** a UI oficial já atende "conversar com os dados". O painel
+  secundário dedicado e o Playwright continuam pendentes.
 
 ---
 
@@ -862,7 +998,9 @@ Registrado para não contaminar o escopo. Nenhum destes entra antes da Onda 7:
 | 3 | `drop/`: PVC `ReadWriteMany` ou `hostPath`? | — | ✅ **respondida: `hostPath`** |
 | 4 | **Quem instala e o que quer ver?** | — | ✅ **RESPONDIDA 2026-11-18:** quem quer controle sobre os próprios dados, coleta simples e custo baixo. Quer **conversar com os próprios dados** — um chat. Ver ADR-014 |
 | 5 | LLM do chat: Ollama ou vLLM? | — | ✅ **respondida: vLLM. Ollama desabilitado (`scripts/desabilitar-ollama.sh`). ADR-015** |
-| 6 | Chat sem LLM é degradação ou modo primário? | Onda 5.3 | antes de 5.3 |
+| 6 | Chat sem LLM é degradação ou modo primário? | — | ✅ **RESPONDIDA na prática (5.3):** primário. `lake_buscar` responde por filtro sem modelo; o LLM é acelerador. Testado: a ferramenta funciona com o LLM fora do ar |
+| 7 | Runtime de LLM: local (vLLM) ou remoto? | — | ✅ **respondida 2026-11-18: OpenRouter.** VRAM liberada (`vllm-study` removido). vLLM continua o caminho para o bundle offline da Onda 7 |
+| 8 | A tela (Hermes) é dona do host? | — | ✅ **respondida: não.** Cliente via MCP, ferramentas de host desabilitadas |
 
 **As quatro primeiras estão fechadas.** As duas novas são consequência direta da
 resposta de produto e são menores: nenhuma delas muda arquitetura, só a

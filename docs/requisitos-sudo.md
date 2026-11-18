@@ -261,3 +261,33 @@ Registrado para que o desvio não vire padrão esquecido.
 | 2026-11-18 | `kubectl exec` para aplicar layout do Garage | Job em Alpine com o binário do Garage montado de `hostPath`, saída em arquivo no host |
 
 Ambos funcionam. Ambos são dívida registrada, não solução.
+
+---
+
+## Sessão 2026-11-18 (noite) — Onda 5.3: nenhum novo pedido de superusuário
+
+A 5.3 (tela de chat via MCP) **não precisou de `sudo`**. Tudo o que exigia
+privilégio foi feito por `microk8s kubectl`:
+
+| ação | como | precisa de root? |
+|---|---|---|
+| criar role read-only no PostgreSQL | `scripts/criar-role-readonly.sh --apply` | não (`kubectl exec`) |
+| criar Secret com a credencial do chat | mesmo script | não |
+| ponte host→cluster | `scripts/conectar-chat.sh` (`port-forward`) | não |
+| instalar Hermes Agent | `curl ... install.sh \| bash`, em `~/.hermes` | não |
+
+**Regra 11 respeitada:** o único script que toca o banco
+(`criar-role-readonly.sh`) tem `--dry-run` como padrão, `--apply` explícito,
+lista de ações em português, o que **não** faz, como reverter, e prova ao final
+(`SELECT` funciona, `DELETE` recebe `permission denied`).
+
+**Efeito colateral registrado:** o `vllm-study` (container de **outro projeto**)
+foi parado e removido por decisão do usuário nesta sessão — "pode derrubar tudo
+que estiver usando a VRAM, [o Hermes] deve ser exclusiva para nosso projeto.
+Então vllm-study vai para o lixo". VRAM resultante: **3.754 MiB livres** (era 178).
+O repositório `vllm-doomsday` continua intacto em disco: parar o container não
+apagou o projeto.
+
+**Pendências de privilégio inalteradas** (continuam opcionais e não bloqueiam):
+`microk8s enable hostpath-storage`, `sudo usermod -aG docker $USER`,
+`sudo microk8s refresh-certs --cert ca.crt`.

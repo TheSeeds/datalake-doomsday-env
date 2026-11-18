@@ -28,7 +28,7 @@ objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256
 | 2 — schema do catálogo | ✅ | 59 testes em PostgreSQL real; migração reversível |
 | 3 — cluster mínimo | ✅ | PUT/GET de 5 MiB com `sha256` conferindo; blocos em disco |
 | 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
-| 5 — conversar com os dados | 🟢 5.1 feita | executor SQL read-only, 33 testes |
+| 5 — conversar com os dados | 🟢 5.1 e 5.3 feitas | executor read-only + tela de chat via MCP, provada contra o catálogo |
 | 6–7 | ⬜ | |
 
 O plano completo, com o bloco de conclusão de cada onda, está em
@@ -116,6 +116,35 @@ configura layout; sem ele os pods ficam `Ready` e a escrita falha. O passo é
 `make ci` roda sem Kubernetes, sem Garage e sem PostgreSQL. Isso é intencional:
 as ondas 0–2 rodam com o cluster desligado, porque o valor do projeto está no
 catálogo, não no orquestrador.
+
+## Conversar com os dados
+
+A tela é o **Hermes Agent**, conectado por **MCP**. Ele é *cliente*, não dono do
+host: as ferramentas de `terminal`, `file`, `browser`, `code_execution` e `web`
+estão desabilitadas de propósito. Derrubar a tela não derruba a ingestão, o
+backup nem o catálogo.
+
+```
+Hermes (tela)  →  MCP  →  lakecore.mcp  →  credencial read-only  →  PostgreSQL
+```
+
+| ferramenta | o que faz |
+|---|---|
+| `lake_esquema` | o schema real, para o modelo não inventar coluna |
+| `lake_buscar` | filtro por origem/tipo/status/data — **funciona sem LLM** |
+| `lake_sql` | `SELECT` com allowlist, `LIMIT` e `timeout`; devolve o SQL junto |
+| `lake_estado` | volume, origens, últimos lotes e o que falhou |
+
+```bash
+scripts/criar-role-readonly.sh --apply   # cria a role sem permissão de escrita
+scripts/conectar-chat.sh                 # ponte host→cluster e URL local
+hermes webapp --status                   # tela em http://127.0.0.1:9120
+```
+
+**Quatro camadas de defesa contra escrita**, e a quarta não depende do meu código:
+mesmo contornando o executor e chamando o banco direto, a credencial do chat
+recebe `permission denied for table objects`. O SQL executado é sempre mostrado:
+é o que separa "conversar com os dados" de "confiar no chatbot".
 
 Requisitos de desenvolvimento: Python 3.11+, e `microk8s` (o `helm` vem de
 `microk8s helm3`). `shellcheck` e `yamllint` são instalados pelo `make setup`.

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 log = logging.getLogger(__name__)
@@ -135,6 +135,22 @@ def _com_limite(sql: str, limite: int) -> str:
     return f"select * from ({sql}) as _chat_resultado limit {limite + 1}"
 
 
+def aplicar_timeout(conn: Connection, timeout_ms: int) -> bool:
+    """Aplica `statement_timeout` na transação corrente. Devolve se conseguiu.
+
+    `SET LOCAL` existe no PostgreSQL e não no SQLite. Silenciar a diferença num
+    `except` dentro do executor escondia o fato; expor como retorno permite
+    testar. Vale para esta transação só — um `Engine` compartilhado com a
+    ingestão não deve carregar configuração de chat.
+    """
+    try:
+        conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
+    except SQLAlchemyError:
+        log.warning("statement_timeout não aplicado neste dialeto")
+        return False
+    return True
+
+
 def executar(
     engine: Engine,
     sql: str,
@@ -151,12 +167,7 @@ def executar(
     final = _com_limite(validado, limite)
 
     with engine.connect() as conn:
-        try:
-            # `SET LOCAL` vale só para esta transação. Se falhar (dialeto sem
-            # suporte), segue — o `LIMIT` já limita o dano.
-            conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
-        except SQLAlchemyError:
-            log.warning("statement_timeout não aplicado neste dialeto")
+        aplicar_timeout(conn, timeout_ms)
 
         resultado = conn.execute(text(final))
         colunas = list(resultado.keys())

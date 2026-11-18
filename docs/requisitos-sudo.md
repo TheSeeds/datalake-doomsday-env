@@ -69,7 +69,86 @@ rodadas de tentativa e erro.
 
 ---
 
-## 🔴 P4 — rota blackhole do Calico (BLOQUEIA a Onda 4)
+## 🔴 P4 — `firewalld` bloqueia FORWARD entre pods (BLOQUEIA a Onda 4)
+
+### Diagnóstico correto (2026-11-18, após restart não resolver)
+
+A hipótese inicial era a rota `blackhole`. **Estava errada** — o kernel resolve o
+pod corretamente:
+
+```
+ip route get 10.1.74.236  →  10.1.74.236 dev cali41ea7915227
+```
+
+A rota `blackhole 10.1.74.192/26` é ruído: existe, mas perde para a rota `/32`
+por host. O host alcança o pod (`host → pod IP: OK`).
+
+**A causa real é `firewalld`.**
+
+| evidência | valor |
+|---|---|
+| `firewalld` no host | **`active`** (Fedora), iniciado `2026-11-17 23:00` |
+| `vxlan.calico` em alguma zona | **não** |
+| interfaces `cali*` em alguma zona | **não** |
+| `ip_forward` | `1` (habilitado) |
+| política de `FORWARD` | bloqueia (padrão do firewalld) |
+
+O firewalld **filtra a cadeia `FORWARD`**. Tráfego que entra no host é permitido
+(`INPUT`), por isso `host → pod` funciona. Tráfego que **atravessa** o host —
+exatamente o caso pod → pod — é descartado. O Calico usa a cadeia `FORWARD` para
+suas políticas; com firewalld na frente, o pacote morre antes.
+
+### Prova
+
+| caminho | resultado |
+|---|---|
+| host → pod IP | **OK** |
+| pod → pod IP | `No route to host` |
+| pod → Service ClusterIP | `Connection timed out` |
+| pod → internet (`172.21.0.1:443`) | OK |
+
+As duas primeiras linhas juntas fecham o diagnóstico: o host entrega, o pod não
+atravessa.
+
+### Comando (exige root)
+
+Adicionar as interfaces do Calico à zona `trusted` — **e persistir**:
+
+```bash
+sudo firewall-cmd --permanent --zone=trusted --add-interface=vxlan.calico
+sudo firewall-cmd --permanent --zone=trusted --add-interface=cali+
+sudo firewall-cmd --reload
+```
+
+> `cali+` não é wildcard de zona: o firewalld aceita o sufixo para interfaces
+> ainda não criadas. Se a versão recusar, use as interfaces existentes:
+> `sudo firewall-cmd --permanent --zone=trusted --add-interface=$(ip -br link | awk '/cali/{print $1}' | tr '\n' ' ')`
+
+Alternativa mais ampla (e mais perigosa): permitir todo `FORWARD` na zona do
+Calico. Prefira a primeira — ela abre só o necessário.
+
+### Verificar depois
+
+```bash
+firewall-cmd --zone=trusted --list-interfaces
+# esperado: vxlan.calico cali+
+
+# e o teste que importa:
+microk8s kubectl -n lake-data run tv --rm -i --restart=Never \
+  --image=busybox:1.36 -- nc -zv -w4 postgresql 5432
+# esperado: postgresql (10.152.183.x:5432) open
+```
+
+### Por que o restart do microk8s não resolveu
+
+Porque o problema **nunca foi** do microk8s. Reiniciar o cluster não altera
+política de firewall do host. Isto é um bom lembrete: o pedido P4 original
+apontava para o lugar errado, e a investigação corrigiu o alvo. O pedido
+anterior está mantido abaixo como registro do erro.
+
+---
+
+## Histórico — P4 hipótese inicial: rota blackhole (DIAGNÓSTICO ERRADO)
 
 **Sintoma.** Pod → pod e Service → pod falham com `No route to host`. Service
 `ClusterIP` funciona (DNAT no kube-proxy), mas qualquer tráfego até o **IP do

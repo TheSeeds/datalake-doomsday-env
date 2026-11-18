@@ -42,7 +42,14 @@ backup:
     # A primeira versão usava a imagem do Garage (shell-less, sem `pg_dump`) e
     # falhava em 100% das execuções sem ninguém ver.
     repository: lakecore-backup
-    tag: "0.1.0"
+    # 0.1.1: o script lia `S3_ENDPOINT` e o chart injeta `GARAGE_S3_ENDPOINT`,
+    # então o Job morria com `KeyError` antes de enviar qualquer byte. Também
+    # corrigido no cluster: a tag 0.1.0 do containerd apontava para um fragmento
+    # `text/html` (página de erro de um pull antigo), não para a imagem — o
+    # kubelet respondia `unexpected media type text/html` e ninguém ligava o
+    # erro ao backup.
+    tag: "0.1.1"
+    pullPolicy: IfNotPresent
 
 #: `pg_dump` acima; estas são as demais rotinas.
 maintenance:

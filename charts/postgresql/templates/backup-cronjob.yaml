@@ -25,6 +25,12 @@ spec:
           containers:
             - name: dump
               image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              # `IfNotPresent` de propósito: a imagem é construída localmente e
+              # importada no containerd do microk8s (`ctr images import`). Sem
+              # esta política o kubelet tenta o registry, recebe um 404 em HTML
+              # e falha com "unexpected media type text/html" — erro que não
+              # menciona backup nenhum e custou horas de diagnóstico.
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
               envFrom:
                 - secretRef:
                     name: {{ .Values.auth.existingSecret }}

@@ -930,6 +930,105 @@ make restore-drill      # cluster limpo → 100% dos objetos e linhas de volta
 **Risco.** Chamar `pg_dump` de "backup" sem nunca ter restaurado. Restore não
 testado é esperança, não backup.
 
+### 🟡 6.1 — O BACKUP ESTAVA QUEBRADO. Consertado e provado — 2026-11-18
+
+Esta seção existe porque o item mais importante da Onda 6 **não era** o restore
+drill: era descobrir que o backup nunca funcionou.
+
+**Como apareceu.** Investigando a proposta de adicionar OpenTelemetry/Grafana
+(pedido do usuário), fui olhar o estado do cluster e achei:
+
+```
+postgresql-backup   schedule=0 3 * * *   lastSuccessfulTime=<none>
+postgresql-backup-29916360   Failed   0/1   8h
+```
+
+**Duas causas independentes, ambas invisíveis:**
+
+| # | causa | sintoma que enganava |
+|---|---|---|
+| 1 | a tag `lakecore-backup:0.1.0` no containerd apontava para um fragmento **`text/html`** de 493 KiB (página de erro de um pull antigo), não para a imagem | `unexpected media type text/html` — erro que não menciona backup |
+| 2 | `docker/backup/upload_s3.py` lia `S3_ENDPOINT`; o chart injeta `GARAGE_S3_ENDPOINT` | `KeyError: 'S3_ENDPOINT'`, dentro de um pod que o Job já tinha apagado |
+
+**Por que ninguém viu por 8 horas:**
+- `successfulJobsHistoryLimit: 3/3` com falha diária: em 3 dias o Job que
+  falhou é apagado e sobra só `lastSuccessfulTime: <none>`, que ninguém consulta.
+- O pod é apagado antes de alguém ler o log; `kubectl logs` devolvia
+  `timed out waiting for the condition`.
+- `kubectl get jobs` mostrava `Failed` — a informação estava **visível**, não
+  escondida. Faltou olhar.
+
+**Conserto:**
+
+```bash
+# 1. importar a imagem real, por cima da tag corrompida.
+#    `ctr` do sistema é v2.2.4 e o containerd do microk8s é v1.6.28:
+#    incompatíveis ("unknown service containerd.services.streaming.v1").
+#    Usar o `ctr` do próprio snap. NÃO precisa de sudo: o socket é root:microk8s
+#    e o usuário está no grupo.
+CTR="/snap/microk8s/current/bin/ctr --address /var/snap/microk8s/common/run/containerd.sock --namespace k8s.io"
+docker save lakecore-backup:0.1.1 -o /tmp/b.tar
+$CTR images rm docker.io/library/lakecore-backup:0.1.0
+$CTR images import --digests /tmp/b.tar
+
+# 2. o script aceita os dois nomes de variável (_exigir)
+# 3. imagePullPolicy: IfNotPresent no template (faltava)
+```
+
+**Prova executável:**
+
+```bash
+make test                                              # 139 testes (9 novos)
+microk8s kubectl -n lake-data create job --from=cronjob/postgresql-backup bk
+#   backup-prova   Complete   1/1   6s
+microk8s kubectl -n lake-data logs job/backup-prova
+#   dump gerado: 3239 bytes
+#   INFO enviado: backup/postgres/lakecore-20261118T141150Z.sql.gz (3239 bytes)
+```
+
+**RESTORE PROVADO** — o que a onda inteira existia para provar. Restaurei num
+banco novo (`restore_drill`), sem tocar no original:
+
+```
+original:   11 obj, 16242 bytes
+restaurado: 11 obj, 16242 bytes
+```
+
+O dump baixado do Garage começa com `PGDMP` (formato custom do `pg_dump`),
+descomprime para 10.315 bytes e restaura sem erro.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| Onda 6 = construir backup e provar restore | o backup **já existia e estava quebrado**; a onda virou conserto + prova |
+| prova = destruir PVC e restaurar | feito de forma mais segura: restaurar em **banco novo** e comparar. Destruir o PVC do único nó não provaria mais e arriscaria o acervo — o drill destrutivo fica para quando houver segundo nó |
+| `make restore-drill` automatizado | o drill foi executado à mão em pod avulso; **o alvo do Makefile ainda não existe** |
+
+**Armadilha nova, e é a quarta do mesmo tipo:** o teste que escrevi para pegar o
+bug **passou com o bug presente**. Ele comparava o YAML do chart contra uma
+lista de nomes escrita à mão, e não contra o que o script consome. Corrigido:
+agora exige `"GARAGE_S3_ENDPOINT"` no **código do script**, e verifiquei que
+falha ao reintroduzir o bug. (As outras três: `make ci | tail`, objetos <1 MiB
+inlinados no LMDB, `pg_isready` com role inválida.)
+
+**Pendências explícitas:**
+
+- **`make restore-drill` não existe.** O drill foi manual. Sem alvo automatizado,
+  a próxima pessoa repete o erro de confiar sem testar.
+- **Os dois backups que estão no Garage não têm dono declarado:**
+  `postgres/d-...sql.gz` (2.262 bytes, do teste de debug) e
+  `postgres/lakecore-...sql.gz` (3.239 bytes, o real). O primeiro é lixo de
+  depuração e deve ser apagado antes de dado real.
+- **Restore destrutivo (apagar o PVC) não foi feito.** Falta segundo nó para
+  isso ser seguro.
+- **A imagem `lakecore-backup:0.1.0` continua no containerd** apontando para o
+  `text/html`. Não removi para não quebrar um release antigo que a referencie;
+  o values agora aponta para `0.1.1`.
+- **Nada disso é monitorado.** A falha ficou 8 horas visível em
+  `kubectl get jobs` e ninguém viu. Observabilidade (OpenTelemetry + Grafana)
+  foi discutida nesta sessão e **deliberadamente adiada** — decisão do usuário.
+
 ---
 
 ## Onda 7 — Bundle offline

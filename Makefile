@@ -8,7 +8,7 @@ VENV := .venv
 VENV_PY := $(VENV)/bin/python
 
 # Alvos que rodam com o cluster desligado. As ondas 0-2 não tocam infra.
-.PHONY: help setup ci test lint yaml-shell lint-helm clean
+.PHONY: help setup ci test lint lint-sh lint-yaml lint-helm ingest-demo clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -16,10 +16,11 @@ help:
 	@echo "  make setup      cria .venv e instala ferramentas de dev"
 	@echo "  make ci         validação completa (não requer cluster)"
 	@echo "  make test       testes unitários do lakecore"
+	@echo "  make ingest-demo  prova o critério da Onda 1 (2x o mesmo arquivo → 1)"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: Onda 0. Infra, cluster e ingestão ainda não existem."
+	@echo "Estado: Onda 1. Núcleo de domínio puro; infra e cluster ainda não existem."
 
 setup: $(VENV_PY)
 
@@ -31,6 +32,22 @@ $(VENV_PY):
 
 test: setup
 	$(VENV_PY) -m pytest -q
+
+# Critério de pronto da Onda 1 (plano-atividades §Onda 1):
+# 4 entradas, 2 conteúdos distintos, 2 duplicatas → 2 objetos escritos.
+# Tudo numa única invocação: os adaptadores são em memória, então o estado não
+# sobrevive entre processos. Repetir o comando provaria cache, não idempotência.
+ingest-demo: setup
+	@tmp=$$(mktemp -d); \
+	printf 'documento um\n' > "$$tmp/a.txt"; \
+	printf 'documento um\n' > "$$tmp/a-copia.txt"; \
+	printf 'outro conteudo\n' > "$$tmp/b.md"; \
+	echo "--- a.txt, a-copia.txt (mesmo conteudo), b.md, a.txt de novo ---"; \
+	PYTHONPATH=src $(VENV_PY) -m lakecore --origem demo \
+		"$$tmp/a.txt" "$$tmp/a-copia.txt" "$$tmp/b.md" "$$tmp/a.txt"; \
+	echo ""; \
+	echo "esperado: aceitos=2 iguais=2 falhas=0 objetos=2"; \
+	rm -rf "$$tmp"
 
 lint-helm:
 	@if command -v $(HELM) >/dev/null 2>&1; then \

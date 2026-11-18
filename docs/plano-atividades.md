@@ -33,8 +33,8 @@
 ## Visão das ondas
 
 ```
-Onda 0  Repositório e contrato de CI            ~1 sessão
-Onda 1  Núcleo de domínio puro (lakecore)       ~1-2 sessões
+Onda 0  Repositório e contrato de CI            ✅ feito
+Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ~1 sessão
 Onda 3  Cluster mínimo de pé                    ~1 sessão
 Onda 4  Ingestão ponta a ponta  ← A PROVA       ~1-2 sessões
@@ -97,6 +97,48 @@ make test        # ingere o mesmo arquivo 2x → 1 Record; 100% verde
 
 **Risco.** Escopo inflado. Regra: `lakecore` **não** sabe o que é HTTP, S3,
 PostgreSQL ou Kubernetes. Só `path` → `Record`.
+
+### ✅ Concluída
+
+**Prova executável:**
+```bash
+make ingest-demo
+# aceitos=2 iguais=2 falhas=0 objetos=2   (4 entradas, 2 conteúdos distintos)
+```
+
+**41 testes verdes**, sem container e sem rede.
+
+| arquivo | responsabilidade |
+|---|---|
+| `models.py` | `Record`, `ObjectRef`, `IngestRequest`, `UploadBatch`, máquina de estados |
+| `ports.py` | `ObjectStore`, `Catalog`, `Clock` como `Protocol` |
+| `layout.py` | `raw/{origem}/{tipo}/YYYY/MM/DD/{sha256}`, com saneamento de entrada |
+| `errors.py` | erros tipados; `DuplicateObjectError` distingue "já existia" de "falhou" |
+| `ingest.py` | `ingest()`, `hash_file()`, `classify()` |
+| `fakes.py` | implementações em memória das portas |
+| `__main__.py` | CLI para exercitar o domínio sem infra |
+
+**Decisões que o código carrega:**
+
+- **Write-before-catalog.** Storage primeiro, catálogo depois. O inverso criaria
+  linha apontando para objeto inexistente — e o catálogo é a fonte de verdade.
+- **Idempotência por conteúdo.** O `sha256` vai no caminho do objeto, então duas
+  ingestões do mesmo dado disputam a mesma chave. Renomear não duplica.
+- **`ObjectStore` não exige `get`.** Só `put` e `exists`. É o papel `ingest`
+  write-only do ADR-011 traduzido em tipo: ingestor comprometido não exfiltra.
+- **Fail-closed.** Storage que aceita a escrita e perde o objeto, ou arquivo
+  alterado entre hash e gravação, **não** são catalogados.
+- **Hash e tamanho na mesma passagem.** Tamanho vem da leitura, não de `stat()`,
+  porque entre o `stat` e a leitura o arquivo pode mudar.
+
+**Correção de rota durante a onda.** O primeiro `make ingest-demo` repetia a
+injeção em duas invocações separadas da CLI. Como os adaptadores são em memória,
+cada processo começa vazio — o demo mostrava `ACEITO` na segunda passagem e
+dizia o contrário do que queria provar. O código estava certo; o alvo do Make
+estava errado. Agora a prova inteira acontece **numa única invocação**.
+
+**Não incluído, deliberadamente:** adaptador de storage real, adaptador de
+catálogo real, HTTP, e qualquer coisa que exija cluster. Isso é Onda 2 e 3.
 
 ---
 

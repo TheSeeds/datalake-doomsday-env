@@ -13,6 +13,7 @@ from lakecore.errors import (
     IntegrityMismatchError,
     UnsupportedObjectError,
 )
+from lakecore.ingest import IngestResult, classify, hash_file, ingest
 from lakecore.layout import raw_key
 from lakecore.models import IngestRequest, ObjectRef, Record, UploadBatch, UploadState
 from lakecore.ports import Catalog, Clock, ObjectStore
@@ -23,6 +24,7 @@ __all__ = [
     "DuplicateObjectError",
     "IngestError",
     "IngestRequest",
+    "IngestResult",
     "IntegrityMismatchError",
     "ObjectRef",
     "ObjectStore",
@@ -30,5 +32,8 @@ __all__ = [
     "UnsupportedObjectError",
     "UploadBatch",
     "UploadState",
+    "classify",
+    "hash_file",
+    "ingest",
     "raw_key",
 ]

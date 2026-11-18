@@ -18,12 +18,44 @@ decisões e plano de atividades — vive no repositório de conceito.
 
 ## Estado
 
-**Onda 0 — estrutura e contrato de CI.** Não há infraestrutura, cluster ou
-ingestão funcional aqui ainda. O que existe:
+**Ondas 0 e 1 concluídas.** O núcleo de domínio funciona; infraestrutura e
+cluster ainda **não existem**.
 
-- `src/lakecore/` — contrato do núcleo de domínio (tipos + portas). Sem I/O.
-- `profiles/`, `charts/`, `modules/`, `scripts/`, `seed/`, `deploy/` — vazios, aguardando as ondas seguintes.
-- `.github/workflows/ci.yml` — CI que precisa ficar verde **antes** de existir código.
+| onda | estado |
+|---|---|
+| 0 — estrutura e CI | ✅ `make ci` verde sem cluster |
+| 1 — `lakecore` puro | ✅ `make ingest-demo`: 4 entradas → 2 objetos |
+| 2 — schema do catálogo | ⬜ próxima |
+| 3–7 | ⬜ |
+
+### `lakecore` — o coração
+
+Recebe um caminho, devolve um `Record`. **Não conhece** HTTP, S3, PostgreSQL ou
+Kubernetes — só stdlib. Isso mantém `make test` em milissegundos e permite que
+as ondas 0–2 rodem com o cluster desligado.
+
+```python
+from lakecore import IngestRequest, ingest
+
+resultado = ingest(
+    IngestRequest(path="foto.jpg", origem="pendrive"),
+    store=..., catalog=..., clock=...,
+)
+resultado.duplicate   # True se o sha256 já estava catalogado
+resultado.record.key  # raw/pendrive/imagem/2026/11/18/<sha256>
+```
+
+Garantias cobertas por teste:
+
+- **idempotência por conteúdo**, não por nome — renomear não duplica
+- **write-before-catalog**: o objeto entra no storage antes da linha no catálogo,
+  então o catálogo nunca aponta para objeto inexistente
+- **fail-closed** na integridade: storage que não confirma a escrita ou arquivo
+  alterado entre hash e gravação **não** são catalogados
+- proveniência obrigatória: sem `origem`, a ingestão é recusada
+
+Adaptadores reais (Garage, PostgreSQL) entram nas ondas 2 e 3. Até lá os testes
+usam implementações em memória das mesmas portas.
 
 O plano completo, com as ondas 0–7 e o critério de pronto de cada uma, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).
@@ -32,6 +64,8 @@ O plano completo, com as ondas 0–7 e o critério de pronto de cada uma, está 
 
 ```bash
 make ci        # não requer cluster, não requer rede
+
+make ingest-demo   # prova o critério da Onda 1
 ```
 
 `make ci` roda sem Kubernetes, sem Garage e sem PostgreSQL. Isso é intencional:

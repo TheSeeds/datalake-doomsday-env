@@ -44,3 +44,9 @@ backup/
 # Charts vendorizados do umbrella (gerados por `helm dependency update`)
 charts/*/charts/
 charts/*/Chart.lock
+
+# Imagens vendorizadas do módulo observability: ~1,6 GB. O tarball NÃO vai para
+# o git (é artefato de bundle, não fonte). Os charts .tgz vão, porque são texto
+# e definem a instalação.
+modules/*/vendor/images.tar
+modules/*/vendor/SHA256SUMS

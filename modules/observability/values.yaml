@@ -1,0 +1,306 @@
+# Valores do módulo `observability`.
+#
+# PRINCÍPIO QUE GOVERNA ESTE ARQUIVO: retenção curta.
+# Um lake que existe para durar não pode ter um painel que come o disco. Os
+# números aqui são curtos de propósito — observabilidade serve para AGIR AGORA,
+# não para arqueologia. Quem precisar de mais tempo muda aqui, conscientemente,
+# sabendo o que isso custa em disco.
+#
+# ---------------------------------------------------------------------------
+# kube-prometheus-stack: Prometheus + Grafana + exporters + operator
+# ---------------------------------------------------------------------------
+# As versões de IMAGEM não aparecem aqui de propósito: elas vêm do chart, que
+# está pinado por versão (93.4.0). Fixar as duas pontas criaria duas fontes de
+# verdade; `scripts/observability-vendor.sh` extrai a lista real com
+# `helm template` em vez de repeti-la à mão.
+kube-prometheus-stack:
+  prometheus:
+    prometheusSpec:
+      # 15 dias: observabilidade serve para agir agora, não para arqueologia.
+      retention: 15d
+      # Teto de tamanho além da retenção. Sem ele, uma explosão de
+      # cardinalidade (label com valor único por linha) enche o disco em horas.
+      # Cardinalidade é o modo de falha clássico do Prometheus.
+      # Formato do CRD: precisa do `B` no fim (`5Gi` é recusado pelo
+      # operator; `5GiB` passa). Erro de schema, não de tamanho.
+      retentionSize: 5GiB
+      # 30 s, não 15 s: o dobro do intervalo para metade do ruído. Nada neste
+      # lake muda em 15 segundos.
+      scrapeInterval: 30s
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 512Mi}
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+  grafana:
+    # Senha vem de Secret criado fora do Helm: credencial em values vaza em
+    # `helm get values`, mesma regra do resto do projeto.
+    admin:
+      existingSecret: grafana-admin
+    sidecar:
+      # PULA a verificação de TLS nas chamadas ao apiserver.
+      #
+      # POR QUÊ: o certificado do microk8s NÃO tem a extensão `key usage`, e os
+      # clientes Python modernos passaram a exigi-la. O sidecar entra em
+      # CrashLoopBackOff com `CA cert does not include key usage extension`.
+      # Testado com 2.14.3 e 2.0.3 — não é versão, é o certificado.
+      #
+      # RISCO, dito com clareza: dentro do pod, interceptação entre o sidecar e
+      # o apiserver não seria detectada. É contenção de dano, não conserto.
+      #
+      # CONSERTO REAL: `sudo microk8s refresh-certs --cert ca.crt`
+      # (P1 em docs/requisitos-sudo.md). Feito isso, apague esta linha.
+      skipTlsVerify: true
+
+      # `/tmp` gravável para o sidecar. O chart monta `/tmp` só no container
+      # `grafana` via `extraEmptyDirMounts` (verificado em _pod.tpl:1601); os
+      # sidecars ficam sem diretório temporário e morrem com
+      # `FileNotFoundError: No usable temporary directory found`.
+      #
+      # Risco aceito e delimitado: o sidecar só lê ConfigMaps e escreve em
+      # /tmp/dashboards — não executa código do usuário. O container `grafana`
+      # continua com rootfs read-only.
+      securityContext:
+        readOnlyRootFilesystem: false
+
+      image:
+        # `repository` SEM o registry: o chart já prefixa `quay.io/`. Com
+        # `quay.io/kiwigrid/k8s-sidecar` o nome vira
+        # `quay.io/quay.io/quay.io/...` e o pod fica em ImagePullBackOff.
+        repository: kiwigrid/k8s-sidecar
+        # 2.0.3 e não 2.14.3: a 2.14.3 roda em Python 3.14, mais rigoroso com
+        # o certificado. Ambas têm o problema de /tmp; o securityContext acima
+        # resolve as duas, e 2.0.3 é a que funciona aqui.
+        tag: "2.0.3"
+
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      # 512 Mi, não 256 Mi: medido em 2026-11-18 — o Grafana 13 sobe o
+      # apiserver interno dele (alerting, advisor, historian) e era
+      # OOMKilled (exit 137) com 256 Mi.
+      limits: {memory: 512Mi}
+
+    persistence:
+      enabled: true
+      # 1 Gi: dashboards são JSON pequeno; o dado mora no Prometheus/Loki.
+      size: 1Gi
+
+    additionalDataSources:
+      - name: Loki
+        type: loki
+        url: http://loki-gateway.observability.svc.cluster.local
+        access: proxy
+
+  alertmanager:
+    # Desligado: sem um canal de notificação configurado, ele é um pod que
+    # toca alarme numa sala vazia. Quando houver Telegram/e-mail, liga-se.
+    enabled: false
+  # Exporters: necessários para as métricas do cluster.
+  nodeExporter:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+  # Desligado: métricas de control-plane exigem endpoints que no microk8s
+  # não estão expostos do jeito que o chart espera (o painel fica vazio e
+  # parece defeito nosso).
+  kubeApiServer:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Loki: logs
+# ---------------------------------------------------------------------------
+loki:
+  # `SingleBinary` e NÃO `SimpleScalable`: o modo scalable exige object storage
+  # (S3) e separa o Loki em três alvos (read/write/backend). Num nó só, isso
+  # adiciona 4 componentes para servir o mesmo volume de log. Medido: com
+  # `SimpleScalable`, o `helm template` falha pedindo bucket S3.
+  deploymentMode: SingleBinary
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      # `filesystem` porque não há S3 para logs e não queremos um segundo
+      # Garage: os logs são derivados do funcionamento, não acervo. Se sumirem,
+      # perdem-se histórico, não dados do usuário.
+      type: filesystem
+    limits_config:
+      # 7 dias: log serve para investigar o que aconteceu ontem, não no ano.
+      retention_period: 168h
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+  # Sidecar de regras de alerta DESLIGADO: ele usa o mesmo `k8s-sidecar` que
+  # falha com o certificado do microk8s, e não temos regra de alerta para ele
+  # buscar. Ligar quando (a) houver regras e (b) o certificado for regenerado.
+  sidecar:
+    rules:
+      enabled: false
+  singleBinary:
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 256Mi}
+    persistence:
+      enabled: true
+      size: 5Gi
+  # Os componentes do modo scalable precisam estar em zero no SingleBinary;
+  # senão o chart sobe ambos e o cluster fica com pods sem trabalho.
+  backend:
+    replicas: 0
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  # Cache em memória: um nó não justifica memcached separado.
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Alloy: coleta unificada (logs + métricas + OTLP)
+# ---------------------------------------------------------------------------
+alloy:
+  # ATENÇÃO À ESTRUTURA: o template do subchart faz
+  # `mustMergeOverwrite .Values.alloy (or .Values.agent dict)` e depois lê
+  # `.Values.alloy.configMap.content`. Como o subchart se chama `alloy`, o
+  # values precisa de DOIS níveis: `alloy.alloy.configMap.content`.
+  # Com um nível só, o chart usa o `example.alloy` dele em silêncio — e o
+  # Alloy sobe coletando nada.
+  alloy:
+    configMap:
+      content: |
+        // Coleta de logs de TODOS os pods do namespace do lake, inclusive os
+        // que já terminaram (Jobs de backup e ingestão). Sem isso, o log de um
+        // Job que falhou some quando o pod é apagado — foi o que aconteceu na
+        // Onda 6 e é a razão principal de o Loki ter sido pedido.
+        discovery.kubernetes "pods" {
+          role = "pod"
+          namespaces {
+            names = ["lake-data"]
+          }
+        }
+
+        discovery.relabel "pods" {
+          targets = discovery.kubernetes.pods.targets
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+            target_label  = "app"
+          }
+        }
+
+        loki.source.kubernetes "pods" {
+          targets    = discovery.relabel.pods.output
+          forward_to = [loki.write.default.receiver]
+        }
+
+        loki.write "default" {
+          endpoint {
+            url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
+          }
+        }
+
+        // Receptor OTLP: hoje ninguém emite; o `lakecore` vai emitir quando
+        // houver spans de verdade no caminho de ingestão.
+        otelcol.receiver.otlp "default" {
+          grpc {}
+          http {}
+          output {
+            metrics = []
+            logs    = [loki.write.default.receiver]
+            traces  = []
+          }
+        }
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  configMap:
+    create: true
+    content: |
+      // Coleta de logs de TODOS os pods do namespace do lake, inclusive os que
+      // já terminaram (Jobs de backup e ingestão). Sem isso, o log de um Job
+      // que falhou some quando o pod é apagado — foi o que aconteceu na Onda 6
+      // e é a razão principal de o Loki ter sido pedido.
+      discovery.kubernetes "pods" {
+        role = "pod"
+        namespaces {
+          names = ["lake-data"]
+        }
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
+        }
+      }
+
+      // Receptor OTLP: hoje ninguém emite; o `lakecore` vai emitir quando
+      // houver spans de verdade no caminho de ingestão.
+      otelcol.receiver.otlp "default" {
+        grpc {}
+        http {}
+        output {
+          metrics = [otelcol.exporter.prometheus.default.input]
+          logs    = [loki.write.default.receiver]
+          traces  = []
+        }
+      }
+
+      otelcol.exporter.prometheus "default" {
+        forward_to = []
+      }

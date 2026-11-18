@@ -1,0 +1,74 @@
+# Definição do módulo `observability`.
+#
+# Formato da §7 da arquitetura-v2. Este é o primeiro módulo real do projeto, e
+# por isso o formato é exercitado de verdade: se estiver errado, é melhor
+# descobrir com um módulo do que com dez.
+#
+# REGRA QUE O FORMATO EXISTE PARA GARANTIR: desinstalar não apaga dado do
+# usuário. Sempre `keeps`.
+
+name: observability
+version: 0.1.0
+description: >
+  Métricas, logs e traces do lake. Grafana como painel, Prometheus para
+  métricas, Loki para logs e Alloy como coletor único.
+
+requires:
+  # Sem GPU: observabilidade não acelera por GPU.
+  gpu: none
+  # Soma dos limites, não do uso ocioso (~1,05 GB medido).
+  ram: 1.5Gi
+  # Métricas e logs com retenção curta (ver values.yaml).
+  disk: 12Gi
+  # `standard` porque o piso `micro` (16 GB) tem 1,5 GB de folga apertada
+  # demais para somar a isso. O módulo funciona em `micro`, mas com limites
+  # reduzidos — e o valor de `ram` acima reflete `standard`.
+  engine: [standard, cluster]
+
+provides:
+  - metricas
+  - logs
+  - traces
+  - painel
+
+install:
+  # Charts vendorizados: NUNCA `--repo`. O addon do microk8s baixa da internet
+  # dentro do `enable` (issue canonical/microk8s#3863) e quebra o airgap.
+  charts:
+    - name: kube-prometheus-stack
+      source: vendor/kube-prometheus-stack
+    - name: loki
+      source: vendor/loki
+    - name: alloy
+      source: vendor/alloy
+  values: values.yaml
+  # Imagens que precisam estar no containerd ANTES do `helm install`. Com
+  # `imagePullPolicy: Never` (lição da Onda 6), imagem ausente falha alto em
+  # vez de baixar uma página de erro.
+  images:
+    - grafana/grafana
+    - prom/prometheus
+    - grafana/loki
+    - grafana/alloy
+    - quay.io/prometheus-operator/prometheus-operator
+    - quay.io/prometheus/node-exporter
+    - registry.k8s.io/kube-state-metrics/kube-state-metrics
+
+health:
+  # O painel responde HTTP e é isso que importa aqui. O frescor do LAKE não
+  # aparece neste endpoint de propósito: ele é independente deste módulo.
+  endpoint: /api/health
+
+uninstall:
+  # Dashboards escritos pelo usuário sobrevivem à remoção do módulo.
+  keeps:
+    - grafana-dashboards
+  # Dito explicitamente para quem for remover: isto some.
+  discards:
+    - metricas (Prometheus TSDB)
+    - logs (Loki chunks)
+  # E isto NUNCA é tocado, com módulo ou sem ele.
+  never_touches:
+    - raw/ (o acervo)
+    - catalogo (PostgreSQL)
+    - tabela saude

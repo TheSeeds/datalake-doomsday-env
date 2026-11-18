@@ -34,3 +34,4 @@ boto3==1.44.5
 # Só `lakecore.mcp` importa este pacote; o domínio e o executor continuam
 # sem saber que existe uma tela.
 mcp==1.30.0
+duckdb==1.5.6

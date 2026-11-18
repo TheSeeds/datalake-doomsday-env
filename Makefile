@@ -11,7 +11,7 @@ VENV_PY := $(VENV)/bin/python
 .PHONY: help setup ci ci-check ci-full test test-pg test-all test-integration lint lint-sh lint-yaml lint-helm \
 	ingest-demo migrate migrate-down migrate-up-down pg-up pg-down \
 	cluster cluster-verify cluster-down secrets chat-demo chat-role \
-	restore-drill restore-drill-check clean
+	restore-drill restore-drill-check export-parquet clean
 
 help:
 	@echo "datalake-doomsday-env"
@@ -34,6 +34,7 @@ help:
 	@echo "  make chat-role   cria a role read-only do chat (defesa 4)"
 	@echo "  make chat-demo   prova a 5.3: catalogo -> tela (sem LLM tambem)"
 	@echo "  make restore-drill  critério da Onda 6: restaura e compara com o original"
+	@echo "  make export-parquet  critério da 5.2: catalogo -> Parquet em derived/"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
@@ -238,3 +239,10 @@ test-integration: setup
 clean:
 	rm -rf $(VENV) .pytest_cache
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+# Prova da 5.2: catalogo -> Parquet, legivel sem PostgreSQL.
+# O derivado e reconstruivel (o `raw/` e o insubstituivel), entao nao tem
+# retencao: se corromper, roda de novo.
+export-parquet:
+	@LAKECORE_DATABASE_URL="$${LAKECORE_DATABASE_URL:-$$(cat $$HOME/.hermes/lake-url.local 2>/dev/null)}" \
+		PYTHONPATH=src $(VENV_PY) -m lakecore.export.cli --destino derived

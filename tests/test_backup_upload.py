@@ -154,3 +154,39 @@ class TestUpload:
         dump.write_bytes(b"x")
 
         assert upload_s3.main(["upload_s3.py", str(dump), "backup/postgres"]) == 1
+
+
+class TestPublicarDerivado:
+    """O derivado vai para `backup/derived/`, nunca ao lado de `raw/`.
+
+    O papel que publica derivado não deve poder escrever ao lado do dado bruto.
+    Se alguém trocar o bucket em vez do prefixo, o teste avisa.
+    """
+
+    def test_prefixo_declarado(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "backup"))
+        import publicar_derivado as pub
+
+        assert pub.chave_destino("objects.parquet") == "derived/objects.parquet"
+
+    def test_mantem_o_bucket_do_papel_verify(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "backup"))
+        import publicar_derivado as pub
+
+        assert pub.BUCKET == "backup", (
+            "mudar o bucket tira a escrita do papel verify; mude o prefixo, não o bucket"
+        )
+
+    def test_strip_de_barra_no_prefixo(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "backup"))
+        import publicar_derivado as pub
+
+        assert pub.chave_destino("x.parquet", "/derived/") == "derived/x.parquet"
+
+    def test_arquivo_vazio_e_recusado(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docker" / "backup"))
+        import publicar_derivado as pub
+
+        vazio = tmp_path / "objects.parquet"
+        vazio.touch()
+        assert pub.main(["publicar_derivado.py", str(vazio)]) == 65

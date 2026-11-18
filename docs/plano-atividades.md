@@ -912,6 +912,63 @@ divergir. Verificado: HTTP 200 em `127.0.0.1:9120`.
 - **5.4/5.5:** a UI oficial já atende "conversar com os dados". O painel
   secundário dedicado e o Playwright continuam pendentes.
 
+### ✅ 5.2 CONCLUÍDA — 2026-11-18 — export Parquet do catálogo
+
+**Prova executável:**
+```bash
+make export-parquet
+#   objects: 11 linhas
+#   uploads: 0 linhas
+#   total: 4139 bytes em 2 arquivo(s)
+```
+
+| arquivo | papel |
+|---|---|
+| `src/lakecore/export/__init__.py` | `exportar()`, `consultar()`, tipos declarados |
+| `src/lakecore/export/cli.py` | um caminho só, usado pelo Job e por quem depura |
+| `docker/backup/publicar_derivado.py` | publica em `backup/derived/` |
+| `tests/test_export.py` | 12 testes |
+
+**Por que `duckdb` e não `pyarrow`:** um pacote de 31 MB escreve **e** consulta
+Parquet; `pyarrow` faria só escrever e custaria 42 MB. Num bundle offline que
+precisa caber em pendrive, um pacote com dois trabalhos vence dois com um cada.
+
+**A decisão que o teste protege: os tipos.** Escrever tudo como `varchar`
+"funciona" e é o defeito: `size_bytes` viraria texto e `sum()` passaria a
+comparar strings. O schema é **declarado** em `TIPOS`, não inferido — coluna
+vazia não tem tipo para inferir, e inferir de dados reais faz o schema do
+derivado mudar conforme o acervo. Verifiquei que os testes **falham** ao
+reverter para `varchar`: o DuckDB responde `BinderException` em `sum()`.
+
+```
+sha256        VARCHAR     size_bytes   BIGINT     coletado_em  TIMESTAMP
+```
+
+**Fidelidade provada contra o acervo real:** o Parquet publicado no Garage e
+lido de volta dá `(11, 16242)` — a mesma contagem e soma do catálogo.
+
+**Onde ele mora, e por quê:** em `backup/derived/`, não em `derived/`. A chave
+do papel `verify` só alcança o bucket `backup`, e isso é deliberado: quem publica
+derivado não deve poder escrever ao lado do dado bruto. O teste
+`test_mantem_o_bucket_do_papel_verify` avisa se alguém trocar o bucket em vez do
+prefixo.
+
+**Desvios do previsto:**
+
+| previsto | ocorrido |
+|---|---|
+| "dá ao chat algo para consultar sem bater no OLTP" | o **export** existe e está provado; o `lake_sql` **ainda consulta o OLTP**. Ligar o chat no Parquet é trabalho separado, e hoje o OLTP aguenta 11 linhas |
+| export como CronJob | o CLI existe e roda; o CronJob no chart ainda não |
+
+**Pendências explícitas:**
+
+- **O chat não lê o Parquet ainda.** `lake_sql` continua no PostgreSQL. Com
+  acervo pequeno isso é correto; a virada precisa de medição, não de pressa.
+- **Sem CronJob.** O export é manual (`make export-parquet`).
+- **Sem retenção nem particionamento.** Um arquivo por tabela; com milhões de
+  linhas isso deixa de servir e a partição por data de `coletado_em` vira
+  necessária.
+
 ---
 
 ## Onda 6 — Backup e restore provado

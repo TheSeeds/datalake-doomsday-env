@@ -72,6 +72,28 @@
    Contorno sem root é permitido (foi o caso do `local-path-provisioner` em vez do
    addon do microk8s), mas **só com registro explícito** do que mudou e por quê.
    Contorno silencioso é o mesmo pecado de pendência implícita.
+10. **Toda parada gera checkpoint de memória — qualquer que seja o motivo.**
+    Fim de onda, bloqueio, troca de assunto, fim de sessão. Não é só "quando
+    termina bem": parada por bloqueio é justamente quando o contexto mais se perde.
+
+    ```bash
+    python3 ~/.ori/global/features/memoria-sessao/memoria_sessao.py usar datalake-doomsday-env
+    ```
+
+    O checkpoint precisa conter, no mínimo:
+
+    | campo | por quê |
+    |---|---|
+    | `oQueFoiFeito` | decisões e o **porquê**, não a lista de arquivos |
+    | `ondeParou` | estado exato + HEAD dos dois repos |
+    | `proximosPassos` | ordenados, incluindo o que **não** fazer ainda |
+    | `bloqueios` | com o comando que desbloqueia, quando existe |
+    | `comandosUteis` | comandos que funcionaram de fato, não os que deveriam |
+    | `licoesAprendidas` | o que custou tempo, para não custar duas vezes |
+
+    Regra de escrita: **fato verificável, não impressão.** "Onda 3 concluída" é
+    inútil; "PUT/GET de 5 MiB com sha256 conferindo, 5,1M em `/var/lib/garage/data`"
+    é o que permite retomar sem refazer.
 
 ---
 

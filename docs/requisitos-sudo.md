@@ -1,68 +1,88 @@
-# Requisitos de infraestrutura da Onda 3 — o que só `sudo` resolve
+# Pendências de superusuário
 
-Este arquivo existe porque a Onda 3 tem uma fronteira que o agente não cruza:
-**habilitar addons do microk8s exige `sudo` com senha.**
+Fila de comandos que **só você pode rodar**. O agente não executa `sudo`, não
+digita senha e não contorna privilégio sem declarar (regra 9 do plano).
 
-Não é limitação de código — é decisão de segurança. Um agente que pede a senha do
-`sudo` do usuário para "só rodar um comando" abre um precedente que não deve
-existir. Os comandos abaixo são para **você** rodar.
+Cada item diz: o comando, o que ele muda, e o que fica bloqueado sem ele.
 
-## Passo 1 — addons do microk8s
+---
 
-Cluster: `zoio`, v1.31.14, verificado em 2026-11-18 como **vazio** (nenhum
-workload fora de `kube-system`). Habilitar é seguro.
+## 🔴 P1 — certificado do apiserver (bloqueia depuração)
+
+**Sintoma.** `kubectl get` funciona; `kubectl exec`, `kubectl logs` e
+`kubectl port-forward` falham:
+
+```
+x509: certificate is valid for 192.168.1.103, ..., not 192.168.1.11
+```
+
+**Causa.** O IP do host mudou de `192.168.1.103` para `192.168.1.11` depois que o
+cluster subiu, e o certificado do apiserver ficou com o IP antigo. `get` usa o
+`localhost` do kubeconfig; `exec`/`logs` fazem proxy até o kubelet pelo IP do nó,
+e é aí que a verificação falha.
+
+**Comando:**
+
+```bash
+sudo microk8s refresh-certs --cert ca.crt
+```
+
+**O que muda.** Regenera o certificado da CA com o IP atual e reinicia o
+apiserver. O cluster fica indisponível por ~30 s. `kubectl` volta a funcionar
+logo depois.
+
+**O que fica bloqueado sem isso.** Depuração de qualquer pod: ler log de
+`ingest-api`, executar `psql` dentro do Postgres, abrir shell no Garage para
+`garage status`. Na Onda 3 eu contornei com Jobs que escrevem em `hostPath`; isso
+funciona, mas gasta tempo e não serve para operação normal.
+
+**Impacto hoje:** a Onda 4 (ingestão) é depurável sem isso, mas com muito mais
+rodadas de tentativa e erro.
+
+---
+
+## 🟡 P2 — storage class nativa (opcional, não bloqueia)
+
+O addon oficial do microk8s grava em `$SNAP_COMMON/default-storage`:
 
 ```bash
 microk8s enable hostpath-storage
 ```
 
-Por que só este primeiro: é o único que **persiste dado**. Os outros podem entrar
-depois, quando o chart precisar (Fase 3.2). `ingress` e `cert-manager` só fazem
-sentido quando houver serviço para expor.
+**Situação.** Contornado na Onda 3 com `local-path-provisioner` do Rancher, que
+grava em `/opt/local-path-provisioner` e é aplicável sem root. Funciona e está em
+uso. Habilitar o addon nativo **substituiria** o contorno — mais alinhado ao que a
+documentação do microk8s descreve, menos peça de terceiro.
 
-Verificação:
+**Não bloqueia nada.** Migrar depois exige recriar o PVC do Postgres (o dado está
+em `/opt/local-path-provisioner`), então só vale a pena se houver motivo.
 
-```bash
-microk8s kubectl get storageclass
-# esperado: microk8s-hostpath (default)
-```
+---
 
-> **Ressalva registrada:** o próprio microk8s avisa que hostpath "não é adequado
-> para produção" e que o volume pode crescer além do limite do PVC. Para o
-> `micro`/`standard` de um nó isso é aceitável e está documentado como limite
-> consciente, não como descuido.
+## 🟡 P3 — grupo docker (melhora o dia a dia)
 
-## Passo 2 — grupo docker (para os testes)
-
-Verificado: o usuário **não** está no grupo `docker`, então `make ci-full` e
-`make test-pg` só funcionam enquanto houver container já autorizado. Para rodar
-sem depender disso:
+Verificado: o usuário **não** está no grupo `docker`. Consequência: `make ci-full`
+e `make test-pg` dependem de um container que já esteja autorizado.
 
 ```bash
 sudo usermod -aG docker "$USER"
-# depois: encerrar sessão e entrar novamente
 ```
 
-Alternativa sem `sudo`: use `podman`, ou aponte `LAKECORE_TEST_PG_URL` para um
-PostgreSQL que você já tenha (o `pramimfez-postgres-1` não é candidato — não é
-seu banco de testes, e usá-lo seria misturar projeto).
+**O que muda.** Permite rodar `docker` sem `sudo`. Efeito só depois de encerrar a
+sessão e entrar de novo.
 
-## O que o agente faz depois
+**Alternativa sem root.** Apontar `LAKECORE_TEST_PG_URL` para um PostgreSQL que
+você já tenha. **Não** usar o `pramimfez-postgres-1` — é de outro projeto.
 
-Com o `storageclass` presente, a Onda 3 continua sozinha:
+---
 
-```bash
-make cluster-verify   # valida addons, garage e postgres
-```
+## Histórico de contornos sem root
 
-## Estado até lá
+Registrado para que o desvio não vire padrão esquecido.
 
-A Onda 3 está **escrita e validada estaticamente**:
+| data | o que precisava de root | como foi resolvido |
+|---|---|---|
+| 2026-11-18 | `microk8s enable hostpath-storage` | `local-path-provisioner` do Rancher via `kubectl`; StorageClass anotada como default manualmente |
+| 2026-11-18 | `kubectl exec` para aplicar layout do Garage | Job em Alpine com o binário do Garage montado de `hostPath`, saída em arquivo no host |
 
-- charts com `helm lint` verde
-- manifests com `kubectl --dry-run=client` verde
-- scripts com `shellcheck` verde
-
-O que **não** está provado: que os charts sobem de verdade, e que o Garage
-armazena com o layout aplicado. Isso é o critério de pronto da onda e exige o
-Passo 1 acima.
+Ambos funcionam. Ambos são dívida registrada, não solução.

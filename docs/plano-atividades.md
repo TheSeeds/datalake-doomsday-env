@@ -59,6 +59,19 @@
    | `datalake-doomsday/docs/arquitetura-v2.md` | correção, se a realidade divergiu |
 
    Onda concluída sem push nos dois repos conta como **não concluída**.
+9. **Precisando de superusuário: informar e pedir. Nunca assumir, nunca pedir senha.**
+   O agente não executa `sudo`, não digita senha e não contorna privilégio por
+   caminho lateral sem declarar. Ao encontrar bloqueio de root:
+
+   1. **parar** e dizer qual comando exato é necessário;
+   2. explicar **o que ele muda** no sistema;
+   3. registrar em `docs/requisitos-sudo.md` — o arquivo é a fila de pendências
+      de privilégio, não um apêndice;
+   4. seguir com o que é possível sem root, **declarando o que ficou sem prova**.
+
+   Contorno sem root é permitido (foi o caso do `local-path-provisioner` em vez do
+   addon do microk8s), mas **só com registro explícito** do que mudou e por quê.
+   Contorno silencioso é o mesmo pecado de pendência implícita.
 
 ---
 

@@ -107,8 +107,29 @@ suas políticas; com firewalld na frente, o pacote morre antes.
 | pod → Service ClusterIP | `Connection timed out` |
 | pod → internet (`172.21.0.1:443`) | OK |
 
+**Refinamento (medição posterior, mais precisa):**
+
+| alvo | tipo | resultado |
+|---|---|---|
+| `garage` `10.152.183.104:3900` | **ClusterIP** | ✅ `open` |
+| `postgresql` `10.1.74.236:5432` | **pod IP** | ❌ `No route to host` |
+| `10.1.74.236:5432` do host | pod IP | ✅ OK |
+
+ClusterIP funciona; **pod IP não**. E o `postgresql` é o único Service
+**headless** (`clusterIP: None`) — logo é o único que expõe IP de pod direto para
+os clientes. O Garage funciona porque o cliente resolve para ClusterIP.
+
+Isso **restringe** o diagnóstico: não é `FORWARD` genérico (o ClusterIP é DNAT e
+passa pelo mesmo caminho), é o encaminhamento **entre interfaces `cali*`** — que
+é exatamente o que a zona `trusted` sem interfaces bloqueia.
+
 As duas primeiras linhas juntas fecham o diagnóstico: o host entrega, o pod não
 atravessa.
+
+> **Ação imediata sem root:** trocar o Service do PostgreSQL de headless para
+> ClusterIP desvia do problema. Mas isso é paliativo: `pod → pod IP` continua
+> quebrado e o `ai-worker`/`query-api` da Onda 5 precisam dele. O fix é o
+> firewalld.
 
 ### Comando (exige root)
 

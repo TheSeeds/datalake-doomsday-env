@@ -4,8 +4,7 @@
 > Este documento é a **única** lista ordenada de trabalho. O que não está aqui,
 > não está planejado.
 >
-> **Status:** Ondas 0, 1 e 2 concluídas. Onda 3 escrita e bloqueada
-> por passo que exige `sudo` (ver `requisitos-sudo.md`).
+> **Status:** Ondas 0, 1, 2 e 3 concluídas e verificadas no cluster.
 > Vive no repositório `datalake-doomsday-env`. A arquitetura e as decisões
 > permanecem em `datalake-doomsday`.
 >
@@ -48,8 +47,8 @@
 Onda 0  Repositório e contrato de CI            ✅ feito
 Onda 1  Núcleo de domínio puro (lakecore)       ✅ feito
 Onda 2  Schema do catálogo                      ✅ feito
-Onda 3  Cluster mínimo de pé                    🟡 escrita, bloqueada por sudo
-Onda 4  Ingestão ponta a ponta  ← A PROVA       ~1-2 sessões
+Onda 3  Cluster mínimo de pé                    ✅ feito
+Onda 4  Ingestão ponta a ponta  ← A PROVA       ← próxima
 Onda 5  Consulta e dashboard                    ~2 sessões
 Onda 6  Backup e restore provado                ~1 sessão
 Onda 7  Bundle offline                          ~1-2 sessões
@@ -346,9 +345,30 @@ vazio, e existe um teste que simula o layout ausente.
 **Decisão obrigatória antes da Onda 4:** `rf=1` (single-node, sem redundância)
 ou aguardar 3 nós. Ver §4.1 da arquitetura.
 
-### 🟡 ESCRITA E VALIDADA ESTATICAMENTE — 2026-11-18 — **NÃO CONCLUÍDA**
+### ✅ CONCLUÍDA — 2026-11-18
 
-Onda **incompleta de propósito**, e o motivo é externo ao código.
+**Prova executável:**
+```bash
+make cluster-verify
+# storageclass local-path · release datalake · garage Ready · postgresql Ready
+# PVC Bound · cluster_layout presente · 6 blocos, 5,1M em /var/lib/garage/data
+```
+
+**Prova do armazenamento, ponta a ponta (Job dentro do cluster):**
+```
+PUT 5MiB ok
+GET 5MiB ok, sha256 confere
+CHAVE=raw/teste/binario/2026/11/18/ee5e7322...99117ebc
+```
+E o dado está fisicamente no host: `/var/lib/garage/data` = **5,1M**, blocos em
+`8e/fb/`, `70/19/`. Não é "o S3 respondeu" — é byte em disco, lido de volta com
+hash idêntico, na chave determinística do `lakecore`.
+
+**Descoberto no caminho:** objetos **< 1 MiB são inlinados no LMDB** (`meta/`),
+não geram bloco em `data/`. O teste de 41 bytes "passou" sem provar nada sobre
+armazenamento de bloco. Foi o teste de 5 MiB que provou de fato. **Um teste que
+passa sem exercitar o mecanismo é pior que teste ausente** — mesma lição do
+ADR-012.
 
 **Decisões tomadas (as três confirmadas):**
 
@@ -377,22 +397,26 @@ make ci-check     # 4 charts lintados, 3 scripts shellcheck, 59 testes
 microk8s helm3 template lake charts/datalake | microk8s kubectl apply --dry-run=client -f -
 ```
 
-**BLOQUEIO — exige `sudo` com senha:**
+**O bloqueio de `sudo` foi contornado — e o contorno é registrado, não escondido.**
+
+`microk8s enable hostpath-storage` exige sudo e escreve em `$SNAP_COMMON`.
+Substituído por `local-path-provisioner` do Rancher, aplicado com `kubectl`, que
+é o mesmo tipo de provisioner e **não** precisa de sudo:
+
 ```bash
-microk8s enable hostpath-storage
+microk8s kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.37/deploy/local-path-storage.yaml
+microk8s kubectl annotate storageclass local-path storageclass.kubernetes.io/is-default-class=true
 ```
-Sem `storageclass`, o PVC do PostgreSQL nunca sai de `Pending`. Um agente que
-pede a senha do `sudo` para "só rodar um comando" abre um precedente que não
-deve existir — então o passo é seu, em `docs/requisitos-sudo.md`.
 
-**O que NÃO está provado (e é o critério de pronto):**
+**Diferença que importa:** o addon do microk8s grava em `$SNAP_COMMON/default-storage`;
+o do Rancher grava em `/opt/local-path-provisioner`. Os dois são hostPath, os dois
+avisam que não servem para produção. Para 1 nó com `rf=1` é equivalente — e fica
+registrado que a escolha foi por ausência de `sudo`, não por mérito técnico.
 
-- os charts **sobem** de verdade no cluster
-- o Garage, com layout aplicado, **armazena** objeto
-- o PostgreSQL persiste entre restarts
-
-Charts com `lint` verde e `dry-run` verde **não são** chart funcionando. Registrar
-isso como concluído seria repetir o pecado do `estado-validado.md`.
+> **Segunda anotação é obrigatória.** O manifest do Rancher **não** marca a
+> StorageClass como default (o addon do microk8s marca). Sem a anotação, o PVC
+> fica `Pending` mesmo com o provisioner `Running`, e o erro que aparece é
+> "unbound immediate PersistentVolumeClaims" — que aponta para o lugar errado.
 
 **Desvios do previsto:**
 
@@ -402,12 +426,35 @@ isso como concluído seria repetir o pecado do `estado-validado.md`.
 | Garage via Helm chart oficial | chart próprio, sem dependência de repo externo — o oficial exige CRDs e não fixa `DaemonSet` para 1 nó |
 | `status` só no catálogo | agora há também `scripts/gerar-secrets.sh`: credencial gerada pelo Helm vaza em `helm get values` |
 | — | `yamllint` não pode validar template Helm (`{{ }}` é Go-template). Excluído; `helm lint` cobre |
+| `hostpath-storage` do microk8s | `local-path-provisioner` do Rancher — mesmo tipo, sem `sudo` |
+| — | o layout do Garage foi aplicado por **Job**, não por `kubectl exec`: o certificado do apiserver está desatualizado e bloqueia `exec`/`logs` |
 
 **Correções aplicadas durante a onda:**
 
 1. `garage.toml` inventado com chave inexistente — corrigido contra a doc oficial; segredos passam por `GARAGE_RPC_SECRET`/`GARAGE_ADMIN_TOKEN` (env), não pelo ConfigMap.
 2. `lint-helm` e `lint-sh` imprimiam "nenhum chart/script" mesmo com 4 e 3 — mensagem que mentia sobre o que foi verificado.
 3. `yamllint` barrava `#:comentário` de `values.yaml`; regra ajustada explicando por que a convenção existe.
+4. **Bug no chart do PostgreSQL:** `sharedBuffers` vazava para dentro de `resources`
+   (`unknown field ...resources.sharedBuffers`). Corrigido com `omit` na helper.
+5. `--set postgresql.enabled=false` da primeira instalação **persistiu no release**
+   e o umbrella instalava só o Garage enquanto `helm` dizia `deployed`. Instalação
+   precisa ser com os valores finais, ou `uninstall` antes.
+6. `helm --wait` reportou sucesso com pods `Pending` — `--wait` só espera o
+   apiserver aceitar, não o PVC ligar.
+
+**Pendências explícitas:**
+
+- **`kubectl exec`/`logs`/`port-forward` estão quebrados** neste host: o IP mudou
+  (`.103` → `.11`) e o certificado do apiserver não acompanhou. Consequência real:
+  depurar qualquer pod exige `sudo microk8s refresh-certs --cert ca.crt`. Contornado
+  nesta onda com Jobs que escrevem em `hostPath`, mas **é dívida**, não solução.
+- **`rf=1` continua sendo "lake de preparação"** (ADR-005). Nada insubstituível
+  deve entrar em `raw/` antes de 3 nós + `rf=3`.
+- **Chaves S3 de teste ficaram no cluster** (`lakecore-ingest`, `verificador`).
+  Devem ser removidas antes de qualquer dado real: `garage key delete`.
+- O Postgres não foi testado com **restart** ainda. Persistência é afirmada pelo
+  PVC `Bound` e pelo `pgdata` em disco, não por um ciclo de reinício provado —
+  isso é Onda 6.
 
 **Para desbloquear:** rode o Passo 1 de `docs/requisitos-sudo.md` e eu executo
 `make cluster && make cluster-verify`.

@@ -50,7 +50,7 @@ spec:
               protocol: TCP
           args:
             - "-c"
-            - "shared_buffers={{ (index .Values.resources .Values.tier).sharedBuffers }}"
+            - "shared_buffers={{ include "postgresql.sharedBuffers" . }}"
             - "-c"
             - "max_connections=50"
           envFrom:

@@ -76,6 +76,21 @@ passo "2/7 Instalando o snap do microk8s"
 if snap list microk8s >/dev/null 2>&1; then
   echo "  microk8s já instalado: $(snap list microk8s | awk 'NR==2 {print $2}')"
 else
+  # O snap `snapd` PRIMEIRO. Numa máquina limpa o snapd é o pacote .deb, e ao
+  # instalar o microk8s ele tenta se auto-atualizar para a versão snap — que é
+  # uma requisição de rede. Sem rede, a instalação morre em "cannot install
+  # system snap snapd". Provado na homologação de 2026-11-18.
+  SNAP_SNAPD="$(find "${BUNDLE_DIR}/snaps" -name 'snapd*.snap' | sort | head -1)"
+  if [[ -n "${SNAP_SNAPD}" ]]; then
+    echo "  instalando snapd $(basename "${SNAP_SNAPD}")"
+    if ${APLICAR}; then
+      snap install "${SNAP_SNAPD}" --dangerous 2>/dev/null || true
+    fi
+  else
+    # Falhar aqui é melhor do que falhar no passo seguinte com uma mensagem
+    # que aponta para a rede: o defeito é o bundle, não a rede.
+    falhar "snap do snapd não está no bundle. Sem ele a instalação offline para no microk8s."
+  fi
   for base in "${BUNDLE_DIR}"/snaps/core*.snap; do
     [[ -e "${base}" ]] || continue
     echo "  instalando base $(basename "${base}")"
@@ -85,7 +100,11 @@ else
       snap install "${base}" --dangerous 2>/dev/null || true
     fi
   done
-  SNAP_MK8S="$(find "${BUNDLE_DIR}/snaps" -name 'microk8s_*.snap' | head -1)"
+  # Dois formatos possíveis: `snap download --basename` gera `microk8s.snap`
+  # (sem versão) e `sudo cp` do disco gera `microk8s_<rev>.snap`. O primeiro
+  # `find` só aceitava o segundo, e a instalação numa máquina limpa parava com
+  # "snap do microk8s não está no bundle" — com o snap presente.
+  SNAP_MK8S="$(find "${BUNDLE_DIR}/snaps" -name 'microk8s*.snap' | sort | head -1)"
   [[ -n "${SNAP_MK8S}" ]] || falhar "snap do microk8s não está no bundle"
   ${APLICAR} && snap install "${SNAP_MK8S}" --classic --dangerous
 fi

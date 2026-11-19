@@ -60,7 +60,13 @@ echo "=================================================================="
 echo
 
 echo "[1/5] Levantando o que compõe o bundle"
-SNAPS_NEEDED=()
+# O `snapd` vem PRIMEIRO de propósito. Numa máquina limpa, o snapd é o pacote
+# .deb; ao instalar o microk8s, o snapd tenta se atualizar para a versão snap e
+# sai na rede — e a instalação morre com "cannot install system snap snapd:
+# Post https://api.snapcraft.io/...: context deadline exceeded". Medido na
+# homologação de 2026-11-18: o bundle tinha core20, core24 e microk8s, e parou
+# no passo 2/7.
+SNAPS_NEEDED=(snapd)
 while read -r nome _versao; do
   SNAPS_NEEDED+=("${nome}")
 done < <(snap list 2>/dev/null | awk '/^(core|microk8s)/ {print $1, $2}')
@@ -175,8 +181,20 @@ else
 fi
 
 echo "  scripts"
-cp scripts/garage-layout.sh scripts/criar-role-readonly.sh scripts/conectar-chat.sh \
-   scripts/restore-drill.sh scripts/observability-install.sh "${DESTINO}/scripts/"
+# TODO script que o install.sh chama tem que estar aqui. Listar à mão já falhou
+# uma vez: `gerar-secrets.sh` ficou de fora e o install numa máquina limpa
+# pararia no passo 6 — DEPOIS de já ter instalado snap e imagens.
+# Por isso a lista é derivada do próprio install.sh, não escrita à mão.
+while read -r dep; do
+  if [[ -f "${dep}" ]]; then
+    cp "${dep}" "${DESTINO}/scripts/"
+  else
+    echo "    AVISO: ${dep} é usado pelo install.sh e não existe" >&2
+  fi
+done < <(grep -ohE 'scripts/[a-z-]+\.sh' scripts/install.sh | sort -u)
+# Scripts úteis na máquina instalada, mesmo não sendo chamados pelo install.
+cp scripts/conectar-chat.sh scripts/restore-drill.sh \
+   scripts/observability-install.sh "${DESTINO}/scripts/"
 if [[ -f scripts/install.sh ]]; then cp scripts/install.sh "${DESTINO}/scripts/"; fi
 if [[ -f scripts/verify.sh ]]; then cp scripts/verify.sh "${DESTINO}/scripts/"; fi
 

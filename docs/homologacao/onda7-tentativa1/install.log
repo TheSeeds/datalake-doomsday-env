@@ -1,0 +1,17 @@
+==================================================================
+ Instalação do lake — offline, a partir de /opt/datalake-bundle-0.1.0
+ Engine: standard   Observabilidade: false
+ Modo: APLICAR
+==================================================================
+
+== 1/7 Verificando o bundle antes de tocar no sistema
+  ok: todos os checksums conferem
+
+== 2/7 Instalando o snap do microk8s
+  instalando base core20.snap
+core20 20261023 installed
+  instalando base core24.snap
+core24 20261022 installed
+error: cannot perform the following tasks:
+- Ensure prerequisites for "microk8s" are available (cannot install system snap "snapd": Post "https://api.snapcraft.io/v2/snaps/refresh": context deadline exceeded (Client.Timeout exceeded while awaiting headers))
+EXIT_INSTALL=1

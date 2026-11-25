@@ -1,0 +1,37 @@
+==================================================================
+ Instalação do lake — offline, a partir de /opt/datalake-bundle-0.1.0
+ Engine: standard   Observabilidade: false
+ Modo: APLICAR
+==================================================================
+
+== 1/7 Verificando o bundle antes de tocar no sistema
+  ok: todos os checksums conferem
+
+== 2/7 Instalando o snap do microk8s
+  instalando snapd snapd.snap
+2026-11-19T22:24:38Z INFO Waiting for automatic snapd restart...
+2026-11-19T22:24:39Z INFO Waiting for automatic snapd restart...
+2026-11-19T22:24:40Z INFO Waiting for automatic snapd restart...
+2026-11-19T22:24:41Z INFO Waiting for automatic snapd restart...
+snapd 2.78 installed
+  instalando base core20.snap
+core20 20261023 installed
+  instalando base core24.snap
+core24 20261022 installed
+microk8s v1.31.14 installed
+
+== 2b/7 Garantindo que o cluster foi inicializado
+  cluster não inicializou (hook do snap ignorado): iniciando
+  ok: servidor da API responde
+
+== 3/7 Aguardando o cluster ficar Ready
+E1119 22:33:35.734355   43451 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:33:35.736538   43451 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:33:35.738245   43451 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:33:35.740941   43451 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:33:35.742735   43451 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+The connection to the server 127.0.0.1:16443 was refused - did you specify the right host or port?
+
+FALHOU: cluster não ficou Ready em 5 min
+EXIT_INSTALL=1
+

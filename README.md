@@ -18,7 +18,8 @@ decisões e plano de atividades — vive no repositório de conceito.
 
 ## Estado
 
-**Ondas 0 a 4 concluídas.** O lake **ingere** dado de verdade: arquivo entra,
+**Ondas 0 a 4 e 7 concluídas** (7: bundle offline homologado). O lake **ingere**
+dado de verdade: arquivo entra,
 objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256`.
 
 | onda | estado | prova |
@@ -30,7 +31,7 @@ objeto vai para o Garage e a linha aparece no catálogo, idempotente por `sha256
 | 4 — ingestão ponta a ponta | ✅ | `POST /uploads` → 201; 2ª vez → `duplicate:true`; 1 linha |
 | 5 — conversar com os dados | 🟢 5.1 e 5.3 feitas | executor read-only + tela de chat via MCP, provada contra o catálogo |
 | 6 — backup e restore | ✅ | `make restore-drill`: dump do Garage → catálogo idêntico (contagem + md5) |
-| 7 — bundle offline | 🟡 | `make bundle` (4,1 GB) + `make verify` (12/12); falta VM sem rede |
+| 7 — bundle offline | ✅ | `sudo bash install.sh && sudo bash verify.sh` (12/12) numa VM Ubuntu 24.04 SEM rede (2026-11-25) |
 
 O plano completo, com o bloco de conclusão de cada onda, está em
 [`docs/plano-atividades.md`](docs/plano-atividades.md).
@@ -180,12 +181,15 @@ Apache 2.0. Ver [`LICENSE`](LICENSE).
 
 ```bash
 # numa máquina COM rede: monta o artefato
-make bundle              # dist/datalake-bundle-0.1.0/ — 4,1 GB
+make bundle              # dist/datalake-bundle-0.1.0/ — 5,1 GB
 
 # na máquina de destino, SEM rede
 sudo bash install.sh     # valida checksums ANTES de tocar no sistema
 sudo bash verify.sh      # 12 verificações que exercitam o caminho real
 ```
+
+**Homologado**: `install.sh && verify.sh` verdes (12/12) numa VM Ubuntu 24.04
+sem internet em 2026-11-25. Manuais em `docs/instalacao.md` e `docs/operacao.md`.
 
 **O bundle não leva o acervo.** `raw/` é do usuário, não do instalador — levar o
 acervo de desenvolvimento entregaria dado de teste como se fosse o de quem

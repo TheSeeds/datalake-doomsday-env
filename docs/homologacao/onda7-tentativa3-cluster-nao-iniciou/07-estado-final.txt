@@ -1,0 +1,22 @@
+=== estado final
+E1119 22:41:03.102169   97630 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.104498   97630 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.106180   97630 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.108698   97630 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.112693   97630 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+The connection to the server 127.0.0.1:16443 was refused - did you specify the right host or port?
+E1119 22:41:03.756420   97813 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.759351   97813 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.761557   97813 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.763430   97813 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:41:03.765243   97813 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+The connection to the server 127.0.0.1:16443 was refused - did you specify the right host or port?
+Name      Version   Rev  Tracking  Publisher  Notes
+core20    20261023  x1   -         -          base
+core24    20261022  x1   -         -          base
+microk8s  v1.31.14  x1   -         -          classic
+snapd     2.78      x1   -         -          snapd
+=== rede continua bloqueada no fim?
+curl: (28) Resolving timed out after 8002 milliseconds
+curl final: exit=28
+

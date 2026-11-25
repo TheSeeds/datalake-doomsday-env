@@ -1,0 +1,23 @@
+==================================================================
+ Instalação do lake — offline, a partir de /opt/datalake-bundle-0.1.0
+ Engine: standard   Observabilidade: false
+ Modo: APLICAR
+==================================================================
+
+== 1/7 Verificando o bundle antes de tocar no sistema
+  ok: todos os checksums conferem
+
+== 2/7 Instalando o snap do microk8s
+  microk8s já instalado: v1.31.14
+
+== 3/7 Aguardando o cluster ficar Ready
+E1119 22:01:00.399252   90722 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:01:00.401334   90722 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:01:00.403174   90722 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:01:00.405071   90722 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+E1119 22:01:00.406866   90722 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:16443/api?timeout=32s\": dial tcp 127.0.0.1:16443: connect: connection refused"
+The connection to the server 127.0.0.1:16443 was refused - did you specify the right host or port?
+
+FALHOU: cluster não ficou Ready em 5 min
+EXIT_INSTALL2=1
+

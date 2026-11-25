@@ -1,0 +1,12 @@
+=== ambiente
+Linux lake-b 6.8.0-147-generic #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+Ubuntu 24.04.5 LTS
+snapd: VERSION=2.77.1+ubuntu24.04
+cpu: 4  mem: 7941MiB
+=== interface antes do bloqueio
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp1s0           UP             10.0.2.15/24 metric 100 fec0::5054:ff:fe3f:1a60/64 fe80::5054:ff:fe3f:1a60/64 
+=== bloqueando a saida (IPv4 + IPv6)
+10.0.2.15 fec0::5054:ff:fe3f:1a60 
+regras ativas: 1 ipv4 / 1 ipv6
+

@@ -1,0 +1,14 @@
+=== provas de ausencia de internet
+curl: (28) Resolving timed out after 10000 milliseconds
+curl -4/6 auto: exit=28
+curl: (28) Resolving timed out after 10000 milliseconds
+curl IPv4: exit=28
+curl: (28) Resolving timed out after 10000 milliseconds
+curl IPv6: exit=28
+DNS externo: exit=2
+ping 8.8.8.8: exit=2
+snap refresh (loja): exit=0
+=== contadores das regras (0 = nao casou nada)
+  101  6754 DROP       0    --  *      enp1s0  0.0.0.0/0            0.0.0.0/0           
+    6   432 DROP       0    --  *      enp1s0  ::/0                 ::/0                
+

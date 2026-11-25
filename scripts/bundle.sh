@@ -78,9 +78,10 @@ if [[ ! -x "${CTR_BIN}" ]]; then
 fi
 # `-q` devolve só hashes em versões novas do ctr: usar a listagem completa e
 # ficar com a coluna REF, sem os nomes de import temporário.
+# Filtrar apenas imagens com tag (contém : mas não @sha256: e não começa com sha256:)
 IMAGENS_TMP="$(mktemp)"
 "${CTR_BIN}" --address "${CTR_SOCK}" --namespace k8s.io images ls 2>/dev/null \
-  | awk 'NR>1 && $1 !~ /^import-/ && $1 !~ /@/ && $1 !~ /^sha256:/ {print $1}' \
+  | awk 'NR>1 && $1 !~ /^import-/ && $1 ~ /:/ && $1 !~ /@sha256:/ && $1 !~ /^sha256:/ {print $1}' \
   | sort -u > "${IMAGENS_TMP}"
 N_IMAGENS="$(wc -l < "${IMAGENS_TMP}")"
 echo "  imagens do containerd: ${N_IMAGENS}"
@@ -95,7 +96,7 @@ echo "[3/5] Conteúdo do bundle"
 cat <<'COMO'
   datalake-bundle-<versao>/
     snaps/            microk8s e bases (instalam com `snap install`)
-    images.tar        TODAS as imagens do containerd, para `ctr images import`
+    images/           um tar por imagem (amd64-only), para `ctr images import`
     charts/           datalake, garage, postgresql, ingest, observability
     modules/          definições + vendor dos charts de cada módulo
     seed/             cenário de demonstração (NÃO é o acervo)
@@ -152,9 +153,38 @@ echo "  imagens"
 # `mapfile` em vez de `$(cat ...)`: a divisão por palavra é intencional (uma
 # imagem por linha), mas explícita — e o shellcheck concorda.
 mapfile -t LISTA_IMAGENS < "${IMAGENS_TMP}"
-"${CTR_BIN}" --address "${CTR_SOCK}" --namespace k8s.io images export \
-  --platform linux/amd64 "${DESTINO}/images.tar" "${LISTA_IMAGENS[@]}"
-echo "    $(du -sh "${DESTINO}/images.tar" | cut -f1) em images.tar"
+# POR QUE UM TAR POR IMAGEM, e não um tar único:
+#   1. `ctr images export` (uma chamada, várias refs) grava o MANIFEST LIST
+#      completo das imagens multi-plataforma; o import na máquina alvo tenta
+#      validar os filhos de outras plataformas e falha com
+#      "content digest sha256:...: not found" (medido: garage v1.1.0 apontava
+#      para o manifest 386 `be3f9598...` ausente até no containerd de origem).
+#   2. `skopeo copy --override-arch amd64` reescreve para manifest simples e
+#      resolve o problema — mas NÃO suporta APPEND num docker-archive existente
+#      ("docker-archive doesn't support modifying existing images").
+#   3. Logo: um tar por imagem, cada um já amd64-only, num diretório `images/`.
+#      O install.sh importa `images/*.tar` em loop (a ordem não importa).
+mkdir -p "${DESTINO}/images"
+TMP_EXPORT="$(mktemp -d)"
+IDX=0
+for img in "${LISTA_IMAGENS[@]}"; do
+  IDX=$((IDX + 1))
+  echo "      ${img}"
+  if ! "${CTR_BIN}" --address "${CTR_SOCK}" --namespace k8s.io images export \
+       "${TMP_EXPORT}/img.tar" "${img}" 2>/dev/null; then
+    echo "    AVISO: ctr export falhou em ${img}" >&2
+    continue
+  fi
+  NOME="img-$(printf '%03d' "${IDX}").tar"
+  if ! skopeo copy --override-os linux --override-arch amd64 \
+       "docker-archive:${TMP_EXPORT}/img.tar" \
+       "docker-archive:${DESTINO}/images/${NOME}:${img}" >/dev/null 2>&1; then
+    echo "    AVISO: skopeo falhou em ${img}" >&2
+    continue
+  fi
+done
+rm -rf "${TMP_EXPORT}"
+echo "    $(du -sh "${DESTINO}/images" | cut -f1) em images/ ($(ls "${DESTINO}"/images/*.tar 2>/dev/null | wc -l) tar(s))"
 
 echo "  charts do lake"
 cp -r charts/* "${DESTINO}/charts/"
@@ -194,7 +224,8 @@ while read -r dep; do
 done < <(grep -ohE 'scripts/[a-z-]+\.sh' scripts/install.sh | sort -u)
 # Scripts úteis na máquina instalada, mesmo não sendo chamados pelo install.
 cp scripts/conectar-chat.sh scripts/restore-drill.sh \
-   scripts/observability-install.sh "${DESTINO}/scripts/"
+   scripts/observability-install.sh \
+   scripts/bootstrap-s3.sh "${DESTINO}/scripts/" 2>/dev/null || true
 if [[ -f scripts/install.sh ]]; then cp scripts/install.sh "${DESTINO}/scripts/"; fi
 if [[ -f scripts/verify.sh ]]; then cp scripts/verify.sh "${DESTINO}/scripts/"; fi
 

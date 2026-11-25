@@ -1225,20 +1225,32 @@ ambiente limpo, senão testa cache, não instalação.
 teórico, porque a máquina de desenvolvimento tem GPU. Ver §11. A ressalva da §9
 continua de pé: homologar GPU na VM do host não homologa GPU em ferro modesto.
 
-### 🟡 ONDA 7 — bundle e verificação FEITOS; homologação em VM PENDENTE
+### ✅ ONDA 7 CONCLUÍDA — homologada em VM sem rede (2026-11-25)
+
+**Homologação:** `sudo bash install.sh --engine standard && sudo bash verify.sh`
+verde (**12/12**) na VM `lake-homologacao` (Ubuntu 24.04, 4 vCPU/8 GB) com a rede
+bloqueada (DNS externo `dns_exit=2`, curl externo `http=000`).
+
+Relatório completo: `docs/homologacao/onda7-tentativa4/RELATORIO.md`.
 
 **O que está provado por comando:**
 
 ```bash
-scripts/bundle.sh --apply     # monta dist/datalake-bundle-0.1.0/ — 4,1 GB
-bash scripts/verify.sh        # 12/12 verificações ok na instalação atual
+scripts/bundle.sh --apply     # monta dist/datalake-bundle-0.1.0/ — 5,1 GB
+sudo bash install.sh --engine standard && sudo bash verify.sh   # 12/12 numa máquina sem rede
 ```
 
 | arquivo | papel |
 |---|---|
-| `scripts/bundle.sh` | snaps + `images.tar` (3,9 GB) + charts + módulos + pinos + SHA256SUMS |
+| `scripts/bundle.sh` | snaps + `images/` (um tar por imagem, amd64-only) + charts + pinos + SHA256SUMS |
 | `scripts/install.sh` | 7 passos, idempotente, valida checksums **antes** de tocar no sistema |
 | `scripts/verify.sh` | 12 verificações que exercitam o caminho real |
+
+**Ajustes feitos durante a homologação** (ver RELATORIO para detalhe):
+- bundle.sh: export de imagens corrigido (um tar por imagem via skopeo amd64)
+- imagens do storage (`hostpath-provisioner`), `lakecore-backup` e `bootstrap-s3.sh`
+  incluídas no bundle
+- **PENDENTE:** adicionar migração do catálogo (Alembic) como passo do install.sh
 
 **O `verify.sh` pegou um defeito real na primeira execução** — o que prova que
 ele testa de verdade:

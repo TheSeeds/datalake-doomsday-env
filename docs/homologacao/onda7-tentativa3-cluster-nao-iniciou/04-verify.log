@@ -1,0 +1,36 @@
+==================================================================
+ Verificação da instalação do lake
+ Data: 2026-11-19T22:33:35Z
+==================================================================
+
+== 1. Cluster
+  FALHA nenhum nó Ready
+
+== 2. Pods do lake
+  FALHA garage: sem pod pronto
+  FALHA postgresql: sem pod pronto
+  FALHA ingest: sem pod pronto
+
+== 3. Catálogo responde de verdade
+  FALHA catálogo não autenticou
+  FALHA não consegui contar objects
+
+== 4. Garage armazena e devolve
+  FALHA não consegui medir /var/lib/garage/data
+
+== 5. Ingestão ponta a ponta (pelo host, como o usuário faz)
+  FALHA GET /health devolveu 000000
+  FALHA primeiro upload não criou objeto: 
+  FALHA reenvio NÃO foi marcado duplicado: 
+
+== 6. Backup registrou sucesso
+  FALHA nenhum backup bem-sucedido registrado (o Job pode nunca ter rodado)
+
+== 7. O lake sabe dizer se está bem
+  FALHA tabela saude vazia: o lake não sabe se está bem
+
+==================================================================
+ 0 verificação(ões) ok, 12 falha(s)
+ RESULTADO: instalação com problema.
+EXIT_VERIFY=1
+

@@ -70,7 +70,13 @@ else
   # aparência de certo. Verificar campo de batalha é tarde.
   falhar "checksum não confere. Bundle corrompido — não instale."
 fi
-[[ -f "${BUNDLE_DIR}/images.tar" ]] || falhar "images.tar ausente"
+if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
+  : # imagens em images/*.tar (formato atual)
+elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
+  : # formato antigo de tar único
+else
+  falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+fi
 
 passo "2/7 Instalando o snap do microk8s"
 if snap list microk8s >/dev/null 2>&1; then
@@ -85,6 +91,17 @@ else
     echo "  instalando snapd $(basename "${SNAP_SNAPD}")"
     if ${APLICAR}; then
       snap install "${SNAP_SNAPD}" --dangerous 2>/dev/null || true
+      # O snapd se REINICIA ao ser atualizado ("Waiting for automatic snapd
+      # restart..."). Instalar outro snap durante esse restart faz o snapd
+      # responder "INFO task ignored" e o hook de instalação do microk8s — que
+      # é quem inicializa o cluster — não roda. Medido em 2026-11-19: o snap
+      # ficava listado e `microk8s kubectl` respondia "connection refused"
+      # para sempre. Esperar as mudanças do snapd terminarem antes de seguir.
+      for _ in $(seq 1 60); do
+        pendente="$(snap changes 2>/dev/null | awk 'NR>1 && $2 ~ /^(Doing|Undoing|Do)$/' | head -1)"
+        [[ -z "${pendente}" ]] && break
+        sleep 5
+      done
     fi
   else
     # Falhar aqui é melhor do que falhar no passo seguinte com uma mensagem
@@ -109,6 +126,35 @@ else
   ${APLICAR} && snap install "${SNAP_MK8S}" --classic --dangerous
 fi
 
+# Instalar o snap `snapd` dispara um restart dele mesmo ("Waiting for automatic
+# snapd restart..."). Se o microk8s for instalado logo depois, o snapd reporta
+# `INFO task ignored` e o hook de instalação do microk8s — que é quem inicializa
+# o cluster — NÃO roda. Resultado medido na homologação de 2026-11-19: o snap
+# aparece instalado e `microk8s kubectl` responde "connection refused" para
+# sempre, porque não há cluster nenhum.
+# O teste é o servidor da API responder, não o snap estar listado.
+passo "2b/7 Garantindo que o cluster foi inicializado"
+if ${APLICAR}; then
+  api_pronta() { microk8s kubectl get --raw /readyz >/dev/null 2>&1; }
+  if api_pronta; then
+    echo "  ok: cluster já estava inicializado"
+  else
+    echo "  cluster não inicializou (hook do snap ignorado): iniciando"
+    microk8s start >/dev/null 2>&1 || true
+    # 10 min: microk8s inicializa o cluster do zero, não é instantâneo.
+    for _ in $(seq 1 120); do
+      api_pronta && break
+      sleep 5
+    done
+    # Incondicional é mentira: foi assim que a primeira versão deste passo
+    # imprimiu "ok: servidor da API responde" com a API recusando conexão.
+    api_pronta || falhar "servidor da API não respondeu em 10 min após microk8s start"
+    echo "  ok: servidor da API responde"
+  fi
+else
+  echo "  [dry-run] microk8s start se o cluster não tiver inicializado"
+fi
+
 # `microk8s status --wait-ready` sai 0 mesmo quando não está pronto em
 # algumas versões; o teste é o nó ficar Ready.
 passo "3/7 Aguardando o cluster ficar Ready"
@@ -127,11 +173,22 @@ passo "4/7 Importando as imagens no containerd"
 # Sem isto, com `imagePullPolicy: Never`, todo pod falha com ErrImageNeverPull.
 # É o passo que a Onda 6 ensinou: imagem local é requisito, não conveniência.
 if ${APLICAR}; then
-  microk8s ctr images import "${BUNDLE_DIR}/images.tar" >/dev/null
+  # Formato do bundle: `images/*.tar` (um por imagem, amd64-only — ver bundle.sh)
+  # ou o antigo `images.tar` único. Importa o que existir.
+  N_IMPORTADAS=0
+  if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
+    for tar_imagem in "${BUNDLE_DIR}"/images/*.tar; do
+      microk8s ctr images import "${tar_imagem}" >/dev/null 2>&1 && N_IMPORTADAS=$((N_IMPORTADAS + 1))
+    done
+  elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
+    microk8s ctr images import "${BUNDLE_DIR}/images.tar" >/dev/null && N_IMPORTADAS=1
+  else
+    falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+  fi
   N="$(microk8s ctr images ls -q 2>/dev/null | grep -vc '^sha256' || true)"
-  echo "  ok: ${N} imagem(ns) no containerd"
+  echo "  ok: ${N_IMPORTADAS} arquivo(s) de imagem importado(s); ${N} imagem(ns) no containerd"
 else
-  echo "  [dry-run] microk8s ctr images import images.tar"
+  echo "  [dry-run] microk8s ctr images import images/*.tar"
 fi
 
 passo "5/7 Habilitando addons"

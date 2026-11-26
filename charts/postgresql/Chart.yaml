@@ -8,5 +8,5 @@ description: |
   migrar dados, só o operador. Operador agora custaria complexidade sem servir
   a nenhuma pergunta que o lake ainda precisa responder.
 type: application
-version: 0.1.0
+version: 1.0.0
 appVersion: "16"

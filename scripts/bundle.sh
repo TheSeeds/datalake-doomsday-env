@@ -33,7 +33,7 @@
 set -euo pipefail
 
 APLICAR=false
-VERSAO="0.1.0"
+VERSAO="1.0.0"
 DESTINO_BASE="dist"
 
 while [[ $# -gt 0 ]]; do
@@ -184,7 +184,7 @@ for img in "${LISTA_IMAGENS[@]}"; do
   fi
 done
 rm -rf "${TMP_EXPORT}"
-echo "    $(du -sh "${DESTINO}/images" | cut -f1) em images/ ($(ls "${DESTINO}"/images/*.tar 2>/dev/null | wc -l) tar(s))"
+echo "    $(du -sh "${DESTINO}/images" | cut -f1) em images/ ($(find "${DESTINO}"/images -maxdepth 1 -name '*.tar' | wc -l) tar(s))"
 
 echo "  charts do lake"
 cp -r charts/* "${DESTINO}/charts/"

@@ -121,13 +121,17 @@ métricas de infra aparecem, as do catálogo não (`pg_up=0`). Está no backlog.
 # no host COM rede: refazer o bundle, copiar para a máquina
 scripts/bundle.sh --apply
 
-# na máquina: re-rodar o install (idempotente) aponta o chart para a nova tag
-sudo bash install.sh --engine standard
+# na máquina SEM rede: re-rodar o install (idempotente) aponta o chart para a nova tag
+sudo bash install.sh --fonte offline --engine standard
+
+# numa máquina COM rede (mesmo fluxo, sem bundle)
+sudo bash install.sh [--engine standard]
 ```
 
-O chart referencia imagem por tag fixa (`newTag`) — nunca `latest`. Se um apply
-de overlay trocar o secret/namespace de produção, é armadilha (ver M2.2 no
-plano). Aplicar o **base**, nunca o overlay dev em produção.
+O `install.sh` roda a **migração do catálogo** como passo próprio
+(`scripts/migrar-catalogo.sh`, idempotente via `alembic upgrade head`) nas duas
+fontes. O chart referencia imagem por tag fixa (`newTag`) — nunca `latest`
+(ver M2.2 no plano).
 
 ### Diagnosticar rede
 

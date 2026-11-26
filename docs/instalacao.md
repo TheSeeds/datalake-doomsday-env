@@ -1,6 +1,20 @@
 # Manual de Instalação — datalake-doomsday
 
-Instala o lake numa máquina **sem internet**, a partir do bundle offline.
+Instala o lake por dois caminhos, através do mesmo `install.sh`:
+
+- **Online** (máquina **com** internet): `sudo bash install.sh` (padrão). Usa o
+  microk8s do store, as imagens próprias do GHCR (`ghcr.io/theseeds/lakecore-*`)
+  e os registries públicos.
+- **Offline** (máquina **sem** rede): `sudo bash install.sh --fonte offline`, a
+  partir do bundle de `make bundle`. Snaps, imagens e charts vêm do artefato,
+  verificados por checksum.
+
+Ambos convergem no mesmo `verify.sh` (12 verificações). Este manual detalha o
+**offline** (caminho homologado em VM Ubuntu 24.04 sem rede); o **online** é o
+mesmo fluxo sem a etapa do bundle, e ainda não foi homologado numa máquina limpa
+com rede (ver `docs/release.md`).
+
+> Build do bundle e publicação das imagens GHCR: [`docs/release.md`](release.md).
 
 ## Pré-requisitos
 
@@ -22,11 +36,13 @@ Numa máquina COM rede (máquina de desenvolvimento):
 git clone <repo-datalake-doomsday-env>
 cd datalake-doomsday-env
 scripts/bundle.sh --apply
-# cria dist/datalake-bundle-0.1.0/ (≈4 GB)
+# cria dist/datalake-bundle-<versão>/ (ex.: 1.0.0)
 ```
 
-Transfira a pasta `dist/datalake-bundle-0.1.0/` para a máquina de destino
+Transfira a pasta `dist/datalake-bundle-<versão>/` para a máquina de destino
 (pendrive, disco externo). Preserve permissões (o install.sh roda como root).
+A versão do bundle é a do release (ver `docs/release.md`); o caminho `--fonte
+online` não usa bundle.
 
 ## Instalar na máquina de destino (SEM rede)
 
@@ -34,14 +50,16 @@ Transfira a pasta `dist/datalake-bundle-0.1.0/` para a máquina de destino
 # desligue a rede para provar o offline (opcional, recomendado na homologação)
 sudo ip link set <iface> down
 
-cd /caminho/para/datalake-bundle-0.1.0
-sudo bash install.sh --engine standard
+cd /caminho/para/datalake-bundle-<versão>
+sudo bash install.sh --fonte offline --engine standard
 ```
 
 Parâmetros:
 
 | Flag | Efeito |
 |---|---|
+| `--fonte online` (padrão) | instala usando internet (microk8s do store, GHCR, registries públicos) |
+| `--fonte offline` | instala a partir do bundle (sem rede) |
 | `--engine micro` | postgresql com shared_buffers reduzido (16 GB RAM) |
 | `--engine standard` | postgresql padrão (32 GB RAM) |
 | `--with-observability` | instala também Prometheus/Grafana/Loki/Alloy |
@@ -49,21 +67,27 @@ Parâmetros:
 
 O install.sh é **idempotente**: rodar de novo não corrompe o instalado.
 
-O que o script faz, na ordem:
+O que o script faz, na ordem (as etapas 4/6/8 variam com a fonte):
 
-1. **Verifica o bundle** — `sha256sum -c SHA256SUMS` antes de tocar no sistema.
-   Bundle corrompido ⇒ aborta com "não instale".
-2. **Instala o snapd** (se necessário) localmente, esperando o restart do snapd
-   (correção da homologação de 2026-11-19: instalar durante o restart fazia o
-   hook do microk8s ser ignorado e o cluster nunca subir).
-3. **Instala o microk8s** (snap local, `--classic --dangerous`).
-4. **Garante o cluster inicializado** — se o hook não rodou, `microk8s start`
+1. **Valida a fonte** — offline: `sha256sum -c SHA256SUMS` antes de tocar no
+   sistema (bundle corrompido ⇒ aborta com "não instale"); online: confirma que
+   snaps/registries/GHCR estarão disponíveis.
+2. **Instala o microk8s** — online: do snap store; offline: snap local
+   (`--classic --dangerous`), com o snapd primeiro e espera do restart (correção
+   de 2026-11-19: instalar durante o restart fazia o hook do microk8s ser
+   ignorado).
+3. **Garante o cluster inicializado** — se o hook não rodou, `microk8s start`
    explícito; espera a API responder (teste real, não `snap list`).
-5. **Importa todas as imagens** no containerd (é o que permite
-   `imagePullPolicy: Never`).
-6. **Habilita addons**: dns, hostpath-storage, helm3.
-7. **Instala o chart** do lake (namespace `lake-data`), com `--wait --timeout 10m`.
-8. **Aplica o layout do Garage** (assign + apply).
+4. **Prepara as imagens** — offline: importa `images/*.tar` no containerd (permite
+   `imagePullPolicy: Never`); online: nada a importar (o kubelet puxa do GHCR +
+   registries).
+5. **Habilita addons** — dns, hostpath-storage, helm3.
+6. **Instala o chart** — namespace `lake-data`, com `--wait --timeout 10m`; os
+   overrides de imagem do lakecore vêm da fonte (curto/`Never` offline,
+   GHCR/`IfNotPresent` online).
+7. **Aplica o layout do Garage** (assign + apply).
+8. **Roda a migração do catálogo (Alembic)** — `scripts/migrar-catalogo.sh`, um
+   Job que aplica `upgrade head` (P1 da Onda 7 corrigido; idempotente).
 
 ## Verificar
 

@@ -8,5 +8,5 @@ description: |
   aqui — é passo explícito no `scripts/garage-layout.sh`, porque o Helm não
   consegue rodar `layout apply`.
 type: application
-version: 0.1.0
+version: 1.0.0
 appVersion: "v1.1.0"

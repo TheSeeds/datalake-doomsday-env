@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-# Instala o lake numa máquina SEM REDE, a partir do bundle.
+# Instala o lake num nó. Dois caminhos de instalação:
+#
+#   online  (padrão)  — máquina COM internet. Instala microk8s do snap store,
+#                       imagens do containerd dos registries públicos + GHCR, e
+#                       o chart do próprio repositório. É o caminho de quem tem
+#                       uma máquina viva e rede.
+#   offline            — máquina SEM rede, a partir do bundle. Imagens locais
+#                       importadas no containerd (`pullPolicy: Never`), snaps do
+#                       bundle, tudo verificado por checksum.
+#
+# Ambos convergem para o MESMO passo de migração do catálogo e o MESMO verify.sh.
+# O que muda é apenas de onde vêm snaps, imagens e o chart.
 #
 # REQUER superusuário: instalar snap, habilitar addons e escrever em
 # /var/lib/datalake. É por isso que este script é `bash install.sh` com
@@ -7,16 +18,18 @@
 # corromper o que já está instalado.
 #
 # O QUE ESTE SCRIPT FAZ, NA ORDEM:
-#   1. confere o bundle (SHA256SUMS) ANTES de instalar qualquer coisa;
-#   2. instala o snap do microk8s e as bases;
-#   3. importa TODAS as imagens no containerd (pullPolicy Never depende disso);
+#   1. valida a fonte (bundle para offline; rede/ferramentas para online);
+#   2. garante o microk8s instalado e o cluster inicializado;
+#   3. (offline) importa as imagens do bundle no containerd;
 #   4. habilita os addons (dns, hostpath-storage, helm);
 #   5. cria os Secrets, instala o chart, aplica o layout do Garage;
-#   6. cria a role read-only do chat e roda a migração do catálogo.
+#   6. roda a migração do catálogo (Alembic) — P1 da Onda 7, agora no install;
+#   7. (opcional) módulo observability.
 #
 # O QUE ESTE SCRIPT NÃO FAZ:
-#   - NÃO acessa a rede (é o ponto: se acessasse, não seria offline);
-#   - NÃO instala o módulo `observability` por padrão (é opcional, e custa RAM);
+#   - online: NÃO baixa o bundle (seria trabalho inútil com rede);
+#   - offline: NÃO acessa a rede (é o ponto: se acessasse, não seria offline);
+#   - NÃO instala o módulo `observability` por padrão (é opcional, custa RAM);
 #   - NÃO apaga dado existente: se o lake já estiver instalado, atualiza.
 #
 # COMO REVERTER:
@@ -24,36 +37,52 @@
 #   sudo snap remove microk8s     # apaga TUDO, inclusive /var/lib/garage
 #
 # USO:
-#   sudo bash install.sh                          # padrão: engine standard
-#   sudo bash install.sh --engine micro           # máquina de 16 GB
-#   sudo bash install.sh --with-observability     # + módulo de observabilidade
-#   sudo bash install.sh --dry-run                # mostra sem executar
+#   sudo bash install.sh                                # fonte online (padrão)
+#   sudo bash install.sh --fonte offline                # a partir do bundle
+#   sudo bash install.sh --engine micro                # máquina de 16 GB
+#   sudo bash install.sh --with-observability          # + módulo de observabilidade
+#   sudo bash install.sh --dry-run                     # mostra sem executar
 
 set -euo pipefail
 
 APLICAR=true
 ENGINE="standard"
 COM_OBSERVABILITY=false
+FONTE="online"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) APLICAR=false; shift ;;
     --engine) ENGINE="${2:?--engine exige valor}"; shift 2 ;;
+    --fonte) FONTE="${2:?--fonte exige valor (online|offline)}"; shift 2 ;;
     --with-observability) COM_OBSERVABILITY=true; shift ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) echo "argumento desconhecido: $1" >&2; exit 64 ;;
   esac
 done
+case "${FONTE}" in
+  online|offline) ;;
+  *) echo "argumento inválido para --fonte: ${FONTE} (esperado online|offline)" >&2; exit 64 ;;
+esac
 
 BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 NS="lake-data"
+
+# Refs das imagens próprias do lake por fonte. Vêm de símbolo único para que o
+# chart e o passo de migração apontem para o MESMO artefato — se divergirem, o
+# verify os pega.
+# Offline: só o nome curto; as imagens são o que o bundle importou no containerd.
+# Online: repositório público GHCR (sem segredo de negócio; só build).
+IMAGEM_INGEST="lakecore-ingest:1.0.0"
+[[ "${FONTE}" == "online" ]] && IMAGEM_INGEST="ghcr.io/theseeds/lakecore-ingest:1.0.0"
 
 passo() { printf '\n== %s\n' "$*"; }
 falhar() { printf '\nFALHOU: %s\n' "$*" >&2; exit 1; }
 
 echo "=================================================================="
-echo " Instalação do lake — offline, a partir de ${BUNDLE_DIR}"
+echo " Instalação do lake — fonte: ${FONTE}"
 echo " Engine: ${ENGINE}   Observabilidade: ${COM_OBSERVABILITY}"
+[[ "${FONTE}" == "offline" ]] && echo " Bundle: ${BUNDLE_DIR}"
 echo " Modo: $(${APLICAR} && echo APLICAR || echo 'DRY-RUN')"
 echo "=================================================================="
 
@@ -61,27 +90,39 @@ if ${APLICAR} && [[ "${EUID}" -ne 0 ]]; then
   falhar "precisa de superusuário. Rode: sudo bash $0"
 fi
 
-passo "1/7 Verificando o bundle antes de tocar no sistema"
-[[ -f "${BUNDLE_DIR}/SHA256SUMS" ]] || falhar "SHA256SUMS ausente: bundle incompleto"
-if ( cd "${BUNDLE_DIR}" && sha256sum --quiet -c SHA256SUMS 2>/dev/null ); then
-  echo "  ok: todos os checksums conferem"
+passo "1/8 Validando a fonte"
+if [[ "${FONTE}" == "offline" ]]; then
+  [[ -f "${BUNDLE_DIR}/SHA256SUMS" ]] || falhar "SHA256SUMS ausente: bundle incompleto"
+  if ( cd "${BUNDLE_DIR}" && sha256sum --quiet -c SHA256SUMS 2>/dev/null ); then
+    echo "  ok: todos os checksums conferem"
+  else
+    # Um bundle corrompido no transporte instalaria software errado com
+    # aparência de certo. Verificar campo de batalha é tarde.
+    falhar "checksum não confere. Bundle corrompido — não instale."
+  fi
+  if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
+    : # imagens em images/*.tar (formato atual)
+  elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
+    : # formato antigo de tar único
+  else
+    falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+  fi
+  echo "  ok: bundle presente e íntegro"
 else
-  # Um bundle corrompido no transporte instalaria software errado com
-  # aparência de certo. Verificar campo de batalha é tarde.
-  falhar "checksum não confere. Bundle corrompido — não instale."
-fi
-if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
-  : # imagens em images/*.tar (formato atual)
-elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
-  : # formato antigo de tar único
-else
-  falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+  echo "  ok: fonte online — snaps e imagens vêm da rede (microk8s, registries, GHCR)"
 fi
 
-passo "2/7 Instalando o snap do microk8s"
+passo "2/8 Instalando o snap do microk8s"
 if snap list microk8s >/dev/null 2>&1; then
   echo "  microk8s já instalado: $(snap list microk8s | awk 'NR==2 {print $2}')"
-else
+elif [[ "${FONTE}" == "online" ]]; then
+  # Caminho online: o snap vem do store. O snapd costuma estar presente num
+  # sistema Ubuntu; se não estiver, `snap` falha e a mensagem aponta o caminho.
+  command -v snap >/dev/null 2>&1 \
+    || falhar "snapd não encontrado. Instale o snapd (sudo apt install snapd)."
+  echo "  instalando microk8s do store (canal estável)"
+  ${APLICAR} && snap install microk8s --classic
+elif [[ "${FONTE}" == "offline" ]]; then
   # O snap `snapd` PRIMEIRO. Numa máquina limpa o snapd é o pacote .deb, e ao
   # instalar o microk8s ele tenta se auto-atualizar para a versão snap — que é
   # uma requisição de rede. Sem rede, a instalação morre em "cannot install
@@ -133,7 +174,7 @@ fi
 # aparece instalado e `microk8s kubectl` responde "connection refused" para
 # sempre, porque não há cluster nenhum.
 # O teste é o servidor da API responder, não o snap estar listado.
-passo "2b/7 Garantindo que o cluster foi inicializado"
+passo "2b/8 Garantindo que o cluster foi inicializado"
 if ${APLICAR}; then
   api_pronta() { microk8s kubectl get --raw /readyz >/dev/null 2>&1; }
   if api_pronta; then
@@ -157,7 +198,7 @@ fi
 
 # `microk8s status --wait-ready` sai 0 mesmo quando não está pronto em
 # algumas versões; o teste é o nó ficar Ready.
-passo "3/7 Aguardando o cluster ficar Ready"
+passo "3/8 Aguardando o cluster ficar Ready"
 if ${APLICAR}; then
   for _ in $(seq 1 60); do
     microk8s kubectl get nodes 2>/dev/null | grep -q ' Ready ' && break
@@ -169,29 +210,36 @@ else
   echo "  [dry-run] aguardaria o nó ficar Ready"
 fi
 
-passo "4/7 Importando as imagens no containerd"
-# Sem isto, com `imagePullPolicy: Never`, todo pod falha com ErrImageNeverPull.
-# É o passo que a Onda 6 ensinou: imagem local é requisito, não conveniência.
-if ${APLICAR}; then
-  # Formato do bundle: `images/*.tar` (um por imagem, amd64-only — ver bundle.sh)
-  # ou o antigo `images.tar` único. Importa o que existir.
-  N_IMPORTADAS=0
-  if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
-    for tar_imagem in "${BUNDLE_DIR}"/images/*.tar; do
-      microk8s ctr images import "${tar_imagem}" >/dev/null 2>&1 && N_IMPORTADAS=$((N_IMPORTADAS + 1))
-    done
-  elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
-    microk8s ctr images import "${BUNDLE_DIR}/images.tar" >/dev/null && N_IMPORTADAS=1
+passo "4/8 Preparando as imagens"
+if [[ "${FONTE}" == "offline" ]]; then
+  # Sem isto, com `imagePullPolicy: Never`, todo pod falha com ErrImageNeverPull.
+  # É o passo que a Onda 6 ensinou: imagem local é requisito, não conveniência.
+  if ${APLICAR}; then
+    # Formato do bundle: `images/*.tar` (um por imagem, amd64-only — ver bundle.sh)
+    # ou o antigo `images.tar` único. Importa o que existir.
+    N_IMPORTADAS=0
+    if compgen -G "${BUNDLE_DIR}/images/*.tar" > /dev/null; then
+      for tar_imagem in "${BUNDLE_DIR}"/images/*.tar; do
+        microk8s ctr images import "${tar_imagem}" >/dev/null 2>&1 && N_IMPORTADAS=$((N_IMPORTADAS + 1))
+      done
+    elif [[ -f "${BUNDLE_DIR}/images.tar" ]]; then
+      microk8s ctr images import "${BUNDLE_DIR}/images.tar" >/dev/null && N_IMPORTADAS=1
+    else
+      falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+    fi
+    N="$(microk8s ctr images ls -q 2>/dev/null | grep -vc '^sha256' || true)"
+    echo "  ok: ${N_IMPORTADAS} arquivo(s) de imagem importado(s); ${N} imagem(ns) no containerd"
   else
-    falhar "sem imagens no bundle (nem images/*.tar nem images.tar)"
+    echo "  [dry-run] microk8s ctr images import images/*.tar"
   fi
-  N="$(microk8s ctr images ls -q 2>/dev/null | grep -vc '^sha256' || true)"
-  echo "  ok: ${N_IMPORTADAS} arquivo(s) de imagem importado(s); ${N} imagem(ns) no containerd"
 else
-  echo "  [dry-run] microk8s ctr images import images/*.tar"
+  # Online: as imagens vêm dos registries no momento em que o kubelet puxa
+  # (pullPolicy IfNotPresent com repositórios de rede). Nada a importar agora.
+  # A validação de verdade é o `--wait` do helm (passo 6) + o verify.sh.
+  echo "  ok: imagens serão puxadas dos registries (online)"
 fi
 
-passo "5/7 Habilitando addons"
+passo "5/8 Habilitando addons"
 for addon in dns hostpath-storage helm3; do
   if ${APLICAR}; then
     microk8s enable "${addon}" 2>&1 | tail -1 | sed 's/^/  /'
@@ -200,20 +248,49 @@ for addon in dns hostpath-storage helm3; do
   fi
 done
 
-passo "6/7 Instalando o chart do lake"
+passo "6/8 Instalando o chart do lake"
 if ${APLICAR}; then
   bash "${BUNDLE_DIR}/scripts/criar-role-readonly.sh" --apply >/dev/null || true
   # Secrets ANTES do chart: o chart referencia por nome e recusa sem eles.
   bash "${BUNDLE_DIR}/scripts/gerar-secrets.sh" 2>/dev/null || true
+
+  # Overrides de imagem por fonte. Offline: renomeia as próprias para o nome
+  # curto importado no containerd e usa `pullPolicy: Never` (a imagem local é a
+  # única fonte e estando lá é a certa). Online: repositórios públicos/digest e
+  # `IfNotPresent`, que deixa o kubelet puxar o que falta mas não re-puxa o que
+  # já está presente.
+  SETS_OFFLINE=(
+    "--set" "ingest.image.repository=lakecore-ingest"
+    "--set" "ingest.image.tag=1.0.0"
+    "--set" "ingest.image.pullPolicy=Never"
+    "--set" "postgresql.backup.image.repository=lakecore-backup"
+    "--set" "postgresql.backup.image.tag=1.0.0"
+    "--set" "postgresql.backup.image.pullPolicy=Never"
+  )
+  SETS_ONLINE=(
+    "--set" "ingest.image.repository=ghcr.io/theseeds/lakecore-ingest"
+    "--set" "ingest.image.tag=1.0.0"
+    "--set" "ingest.image.pullPolicy=IfNotPresent"
+    "--set" "postgresql.backup.image.repository=ghcr.io/theseeds/lakecore-backup"
+    "--set" "postgresql.backup.image.tag=1.0.0"
+    "--set" "postgresql.backup.image.pullPolicy=IfNotPresent"
+  )
+  if [[ "${FONTE}" == "online" ]]; then
+    SETS=("${SETS_ONLINE[@]}")
+  else
+    SETS=("${SETS_OFFLINE[@]}")
+  fi
+
   microk8s helm3 upgrade --install datalake "${BUNDLE_DIR}/charts/datalake" \
     -n "${NS}" --create-namespace \
-    --set "postgresql.tier=${ENGINE}" --wait --timeout 10m
+    --set "postgresql.tier=${ENGINE}" \
+    "${SETS[@]}" --wait --timeout 10m
   echo "  ok: release instalado"
 else
   echo "  [dry-run] microk8s helm3 upgrade --install datalake charts/datalake -n ${NS}"
 fi
 
-passo "7/7 Aplicando o layout do Garage"
+passo "7/8 Aplicando o layout do Garage"
 # O Helm instala o Garage mas NÃO aplica o layout; sem ele os pods ficam Ready e
 # nada é armazenado (lição da Onda 3, que custou um teste que "passava").
 if ${APLICAR}; then
@@ -222,6 +299,18 @@ if ${APLICAR}; then
   echo "  ok: layout aplicado"
 else
   echo "  [dry-run] garage-layout.sh assign --apply && apply --apply"
+fi
+
+passo "8/8 Migração do catálogo (Alembic)"
+# ATÉ a v0.1.x, esta migração NÃO rodava no install — só manualmente no pod, com
+# o `alembic.ini` copiado em /tmp. Em instalação limpa as tabelas
+# `objects`/`uploads`/`saude` não eram criadas (P1 da Onda 7). Agora é um Job
+# efêmero usando a MESMA imagem do ingest, idempotente via `upgrade head`.
+if ${APLICAR}; then
+  bash "${BUNDLE_DIR}/scripts/migrar-catalogo.sh" "${IMAGEM_INGEST}" \
+    --namespace "${NS}" || falhar "migração do catálogo falhou"
+else
+  echo "  [dry-run] migrar-catalogo.sh ${IMAGEM_INGEST}"
 fi
 
 if ${COM_OBSERVABILITY}; then

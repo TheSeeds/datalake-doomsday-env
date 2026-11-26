@@ -39,16 +39,12 @@ backup:
   retentionDays: 30
   image:
     # Imagem própria: `postgres:16` + `boto3`. Ver docker/backup/Dockerfile.
-    # A primeira versão usava a imagem do Garage (shell-less, sem `pg_dump`) e
-    # falhava em 100% das execuções sem ninguém ver.
+    # Em offline usa `lakecore-backup` (importada no containerd pelo bundle);
+    # em online `install.sh --fonte online` aponta para
+    # `ghcr.io/theseeds/lakecore-backup`. O valor aqui é o padrão (offline).
     repository: lakecore-backup
-    # 0.1.1: o script lia `S3_ENDPOINT` e o chart injeta `GARAGE_S3_ENDPOINT`,
-    # então o Job morria com `KeyError` antes de enviar qualquer byte. Também
-    # corrigido no cluster: a tag 0.1.0 do containerd apontava para um fragmento
-    # `text/html` (página de erro de um pull antigo), não para a imagem — o
-    # kubelet respondia `unexpected media type text/html` e ninguém ligava o
-    # erro ao backup.
-    tag: "0.2.0"
+    # v1.0.0: alinhado à versão do lake.
+    tag: "1.0.0"
     # `Never`, não `IfNotPresent`. Descoberto em 2026-11-18: uma tag que existe
     # no containerd mas aponta para um fragmento inválido (página HTML de 404 de
     # um pull anterior) é aceita por `IfNotPresent` sem validação, e o pod
@@ -58,7 +54,8 @@ backup:
     #
     # Custo: a imagem precisa ser importada no nó antes do primeiro uso. É o
     # que a instalação offline faz de qualquer forma (Onda 7), e é honesto:
-    # este lake não depende de registry.
+    # este lake não depende de registry. Em `--fonte online` o install.sh
+    # sobrepõe este valor com `IfNotPresent` + repositório GHCR.
     pullPolicy: Never
 
 #: `pg_dump` acima; estas são as demais rotinas.

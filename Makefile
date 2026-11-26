@@ -35,12 +35,12 @@ help:
 	@echo "  make chat-demo   prova a 5.3: catalogo -> tela (sem LLM tambem)"
 	@echo "  make restore-drill  critério da Onda 6: restaura e compara com o original"
 	@echo "  make export-parquet  critério da 5.2: catalogo -> Parquet em derived/"
-	@echo "  make bundle      monta o bundle offline (4,1 GB)"
+	@echo "  make bundle      monta o bundle offline (dist/datalake-bundle-<versão>/)"
 	@echo "  make verify      critério da Onda 7: verifica a instalação de verdade"
 	@echo "  make lint       shellcheck + helm lint"
 	@echo "  make clean      remove artefatos locais"
 	@echo ""
-	@echo "Estado: ondas 0-4 e 6 concluídas; 5.1/5.2/5.3/5.6 prontas; 7 com bundle+verify."
+	@echo "Estado: ondas 0-7 concluídas; instalação offline homologada + caminho online."
 
 setup: $(VENV_PY)
 

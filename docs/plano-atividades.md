@@ -1236,7 +1236,7 @@ Relatório completo: `docs/homologacao/onda7-tentativa4/RELATORIO.md`.
 **O que está provado por comando:**
 
 ```bash
-scripts/bundle.sh --apply     # monta dist/datalake-bundle-0.1.0/ — 5,1 GB
+scripts/bundle.sh --apply     # monta dist/datalake-bundle-1.0.0/ — 5,1 GB
 sudo bash install.sh --engine standard && sudo bash verify.sh   # 12/12 numa máquina sem rede
 ```
 

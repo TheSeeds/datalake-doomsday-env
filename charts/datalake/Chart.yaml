@@ -7,8 +7,8 @@ description: |
   artefato que precisa ser instalado. Os charts de cada componente podem ser
   usados sozinhos, mas o caminho suportado é este.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 1.0.0
+appVersion: "1.0.0"
 keywords:
   - datalake
   - offline
@@ -23,14 +23,14 @@ maintainers:
 # Os componentes são instalados condicionalmente por `values-*.yaml`.
 dependencies:
   - name: postgresql
-    version: 0.1.0
+    version: 1.0.0
     repository: "file://../postgresql"
     condition: postgresql.enabled
   - name: garage
-    version: 0.1.0
+    version: 1.0.0
     repository: "file://../garage"
     condition: garage.enabled
   - name: ingest
-    version: 0.1.0
+    version: 1.0.0
     repository: "file://../ingest"
     condition: ingest.enabled

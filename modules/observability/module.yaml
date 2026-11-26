@@ -8,7 +8,7 @@
 # usuário. Sempre `keeps`.
 
 name: observability
-version: 0.1.0
+version: 1.0.0
 description: >
   Métricas, logs e traces do lake. Grafana como painel, Prometheus para
   métricas, Loki para logs e Alloy como coletor único.

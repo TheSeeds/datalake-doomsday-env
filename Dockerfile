@@ -31,6 +31,12 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY src/ ./src/
+# alembic.ini: o install.sh roda `alembic upgrade head` como passo próprio (P1
+# da Onda 7). Antes este arquivo não estava na imagem e a migração só rodava
+# manualmente no pod, com o ini copiado em /tmp — e em instalação limpa as
+# tabelas do catálogo não eram criadas. Estar na imagem torna a migração
+# idempotente e executável em qualquer uma das fontes (offline/online).
+COPY alembic.ini ./
 
 USER 10001:10001
 

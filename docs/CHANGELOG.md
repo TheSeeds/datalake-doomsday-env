@@ -3,9 +3,9 @@
 As releases seguem Semantic Versioning (ver [`docs/release.md`](release.md)).
 O formato é [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
-## [1.0.0] — 2026-11-XX (planejado)
+## [1.0.0] — 2026-11-26
 
-Primeira versão estável. Encerra a fase 1 (v0.1-beta) e adota SemVer.
+Primeira versão estável. **Projeto lançado e público.** Encerra a fase 1 (v0.1-beta) e adota SemVer.
 
 ### Adicionado
 

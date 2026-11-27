@@ -58,8 +58,8 @@ echo "=================================================================="
 
 precisa_docker
 
-build "ingest" Dockerfile . "${TAG}"
-build "backup" docker/backup/Dockerfile docker/backup "${TAG}"
+build "lakecore-ingest" Dockerfile . "${TAG}"
+build "lakecore-backup" docker/backup/Dockerfile docker/backup "${TAG}"
 
 if ! ${PUSH}; then
   echo

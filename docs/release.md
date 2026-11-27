@@ -71,13 +71,19 @@ scripts/build-push-ghcr.sh --push --tag 1.0.0 # build + push em ghcr.io/theseeds
 
 O caminho **offline** está homologado (VM Ubuntu 24.04 sem rede, 12/12). O
 caminho **online** (o mesmo `install.sh` com `--fonte online`) **ainda não foi
-homologado** numa máquina limpa com internet. Antes de declarar v1.0.0 "fechada":
+homologado** numa máquina limpa com internet. O roteiro passo a passo está em
+[`docs/homologacao/ONLINE.md`](homologacao/ONLINE.md); antes de declarar
+v1.0.0 "fechada":
 
-- [ ] subir uma VM/máquina limpa com rede;
-- [ ] `sudo bash install.sh && sudo bash verify.sh` (fonte online);
-- [ ] registrar o resultado em `docs/homologacao/`.
+1. publicar as imagens próprias no GHCR (`build-push-ghcr.sh --push --tag 1.0.0`);
+2. `sudo bash install.sh && sudo bash verify.sh` (fonte online) numa máquina
+   limpa com rede;
+3. registrar o resultado em `docs/homologacao/ONLINE.md`.
 
 Este é o único critério de pronto do release que permanece aberto.
+> Nota: o `build-push-ghcr.sh` foi corrigido para publicar com os nomes
+> `lakecore-ingest`/`lakecore-backup` (antes gerava `ingest`/`backup`, o que
+> quebraria o caminho online).
 
 ## Build do bundle (detalhe)
 

@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
-# Constrói e publica as imagens próprias do lake (ingest e backup) no GHCR.
+# Build LOCAL das imagens próprias do lake (ingest e backup).
+#
+# PUBLICAÇÃO OFICIAL = CI (GitHub Actions), não este script:
+#   o workflow `.github/workflows/publish-images.yml` sobe as imagens para o GHCR
+#   automaticamente em toda TAG `v*` (buildx + GITHUB_TOKEN, sem login manual).
+#   Este script serve para BUILD LOCAL / iteração de desenvolvimento e como
+#   fallback declarado (ex.: homologar o artefato antes do release).
 #
 # POR QUE SÓ ESTAS DUAS:
 #   a ingest (`Dockerfile`) e a backup (`docker/backup/Dockerfile`) são as únicas
-#   imagens buildadas neste repositório. Toda a infra (postgres, garage, microk8s,
-#   observability) já vem de registries públicos. Publicar no GHCR o que é nosso
-#   deixa o caminho de instalação ONLINE usar o repositório público sem segredo
-#   de negócio no artefato — só imagem de build, como combinado.
+#   imagens buildadas neste repositório. Toda infra (postgres, garage, microk8s,
+#   observability) vem de registries públicos. As nossas vão para
+#   `ghcr.io/theseeds/lakecore-{ingest,backup}:<tag>`.
 #
-# NAMESPACE GHCR:
-#   `ghcr.io/theseeds/*` (org GitHub `TheSeeds`). O push exige autenticação com
-#   um PAT com escopo `write:packages` — que você roda, nunca este script pede
-#   senha (regra 9). O CI pode reutilizar `GITHUB_TOKEN` num workflow devidamente
-#   autorizado.
+# NOMES (alinhados ao install.sh):
+#   `lakecore-ingest` / `lakecore-backup` — NUNCA `ingest`/`backup`, senão o
+#   caminho online falha com ErrImagePull. (Bug corrigido 2026-11-27.)
 #
 # USO:
-#   scripts/build-push-ghcr.sh                # build local, SÓ build (sem push)
-#   scripts/build-push-ghcr.sh --push --tag 1.0.0   # build + push no GHCR
+#   scripts/build-push-ghcr.sh                        # build local (padrão)
+#   scripts/build-push-ghcr.sh --push --tag 1.0.0     # build + push (fallback manual)
 #
-# TAG:
-#   padrão: a versão de release (ver scripts/bundle.sh) — mantém bundies e
-#   imagens GHCR alinhados por semver. Bump de versão = nova tag nos dois lados.
+# TAG: a versão de release (sem `v`), alinhada ao semver dos charts e do bundle.
 
 set -euo pipefail
 
@@ -54,6 +55,7 @@ build() {
 echo "=================================================================="
 echo " Build das imagens próprias do lake → GHCR (org ${ORG})"
 echo " Tag: ${TAG}   Push: ${PUSH}"
+echo " (Publicação oficial: CI em tag v* — ver publish-images.yml)"
 echo "=================================================================="
 
 precisa_docker
@@ -64,7 +66,7 @@ build "lakecore-backup" docker/backup/Dockerfile docker/backup "${TAG}"
 if ! ${PUSH}; then
   echo
   echo "DRY-RUN: imagens buildadas localmente (não publicado)."
-  echo "Rode com --push para publicar em ghcr.io/${ORG}/"
+  echo "Publicação oficial: CI (tag v*). Fallback manual:"
   echo "  docker login ghcr.io   # com PAT write:packages (você executa)"
   echo "  scripts/build-push-ghcr.sh --push"
   exit 0

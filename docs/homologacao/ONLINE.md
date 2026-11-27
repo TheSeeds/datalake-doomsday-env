@@ -29,28 +29,26 @@ confirmar que o instalador usa essa rede corretamente (não depende do bundle).
 | `sudo` | o install exige root |
 | Acesso ao GHCR | **`docker login ghcr.io`** com um PAT com escopo `write:packages` — que você roda, nunca eu peço senha |
 
-## Passo 0 — publicar as imagens próprias no GHCR (PRIMEIRO)
+## Passo 0 — garantir que as imagens estão no GHCR (via CI, automático)
 
-O caminho online **não funciona** enquanto as imagens não estiverem no GHCR.
-Já estão buildadas localmente com os nomes certos:
-
-```bash
-docker images | grep theseeds
-# ghcr.io/theseeds/lakecore-ingest:1.0.0
-# ghcr.io/theseeds/lakecore-backup:1.0.0
-```
-
-Para publicar (exige login seu):
+O caminho online **não funciona** enquanto `ghcr.io/theseeds/lakecore-*` não
+existirem. A **publicação é via CI**: no
+[`.github/workflows/publish-images.yml`](../.github/workflows/publish-images.yml),
+toda tag `v*` faz buildx + push das duas imagens automaticamente (com
+`GITHUB_TOKEN`, sem login manual).
 
 ```bash
-docker login ghcr.io          # você, com PAT write:packages
-cd datalake-doomsday-env
-scripts/build-push-ghcr.sh --push --tag 1.0.0
+git tag v1.0.0 && git push --tags      # dispara o publish-images.yml
 ```
 
-> Confira que o push usa os nomes `lakecore-ingest`/`lakecore-backup` (o script
-> foi corrigido para isso — antes gerava `ingest`/`backup`, o que quebraria o
-> caminho online).
+Confira no GitHub (Actions → publish-images) e em
+`ghcr.io/theseeds/lakecore-{ingest,backup}:<versão>`.
+
+> **Nota:** se a tag `v1.0.0` já existia antes deste workflow, a primeira
+> publicação dela pode disparar pelo **`workflow_dispatch`** (botão "Run
+> workflow" com `tag = 1.0.0` no GitHub), ou pelo fallback manual
+> `scripts/build-push-ghcr.sh --push --tag 1.0.0` (após `docker login ghcr.io`).
+> Para as próximas versões (v1.1, v2, ...) basta criar a tag.
 
 ## Passo 1 — instalar na máquina limpa (com rede)
 

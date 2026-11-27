@@ -34,13 +34,12 @@ conjunto, promovido junto).
 2. **Atualize `docs/CHANGELOG.md`** — mova "Unreleased" para a versão nova.
 3. **Valide** — `make ci` (e `make ci-full` se possível). Alinhe com o
    repositório de conceito se a arquitetura mudou.
-4. **Publique as imagens próprias (GHCR)**:
-   ```bash
-   docker login ghcr.io              # PAT com write:packages (você executa)
-   scripts/build-push-ghcr.sh --push --tag <M.m.p>
-   ```
-   `lakecore-ingest` e `lakecore-backup` — apenas imagem de build, **sem segredo
-   de negócio** no artefato.
+4. **Publique as imagens próprias (GHCR) — automático via CI.** Ao criar a tag
+   `v<M.m.p>`, o workflow `.github/workflows/publish-images.yml` sobe
+   `lakecore-ingest` e `lakecore-backup` para o GHCR com `buildx` e `GITHUB_TOKEN`
+   (sem `docker login` manual). Não há passo manual de push. Se precisar publicar
+   fora de uma tag (ex.: re-publicar uma versão), use `workflow_dispatch` no
+   GitHub ou `scripts/build-push-ghcr.sh --push` como fallback declarado.
 5. **Monte o bundle (para o caminho offline)**:
    ```bash
    scripts/bundle.sh --apply --versao <M.m.p>
@@ -54,18 +53,29 @@ conjunto, promovido junto).
    git push && git push --tags
    ```
 
-## Publicar imagens no GHCR
+## Publicar imagens no GHCR — via CI
 
-Só as duas imagens **próprias** são publicadas — o resto da infra já vem de
-registries públicos. `scripts/build-push-ghcr.sh`:
+Só as duas imagens **próprias** são publicadas — o resto da infra vem de
+registries públicos. O **fluxo oficial é automatizado** no
+[`.github/workflows/publish-images.yml`](../.github/workflows/publish-images.yml):
+em **toda tag `v*`**, a CI faz buildx + `docker push` para
+`ghcr.io/theseeds/lakecore-{ingest,backup}:<semver>` usando `GITHUB_TOKEN`
+(escopo `packages: write`), sem login manual nem PAT.
 
 ```bash
-scripts/build-push-ghcr.sh                    # build local (sem push) — dry-run
-scripts/build-push-ghcr.sh --push --tag 1.0.0 # build + push em ghcr.io/theseeds
+git tag v<M.m.p> && git push --tags   # → dispara o publish-images.yml
 ```
 
-> Push exige autenticação. Este repositório não guarda credencial; o comando
-> `docker login ghcr.io` é executado por você (regra de privilégio/segredo).
+**Fallback manual** (build local / iteração), caso queira publicar sem tag:
+
+```bash
+scripts/build-push-ghcr.sh                        # build local (sem push)
+scripts/build-push-ghcr.sh --push --tag <M.m.p>   # build + push (requer docker login)
+```
+
+> Os nomes são `lakecore-ingest`/`lakecore-backup` — nunca `ingest`/`backup`
+> (bug de nome corrigido 2026-11-27; o caminho online falharia com ErrImagePull).
+> Imagem de build, **sem segredo de negócio** no artefato.
 
 ## Caminho online — pendência do release v1.0.0
 

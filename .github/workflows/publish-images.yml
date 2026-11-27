@@ -84,8 +84,13 @@ jobs:
       - name: Build e push lakecore-backup
         uses: docker/build-push-action@v6
         with:
+          # `context` aponta para o subdiretório do Dockerfile; `file` é relativo
+          # ao CONTEXT (não ao root do repo). Assim o COPY de upload_s3.py etc.
+          # (relativos a docker/backup/) funciona, e evita o erro
+          # "unable to prepare context: path ./docker/backup not found" quando se
+          # mistura file=./docker/backup/Dockerfile com context=./docker/backup.
           context: ./docker/backup
-          file: docker/backup/Dockerfile
+          file: Dockerfile
           push: true
           platforms: linux/amd64
           tags: |

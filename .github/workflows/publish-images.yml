@@ -11,9 +11,10 @@
 #     release; se há tag, há release, e as imagens precisam existir no GHCR.
 #   - A tag de imagem é a TAG GIT sem o prefixo `v` (`v1.0.0` → `1.0.0`), alinhada
 #     ao semver dos charts e do bundle (regra de `docs/release.md`).
-#   - Autenticação no GHCR via `GITHUB_TOKEN` com `packages: write` — fornecido
-#     automaticamente pelo GitHub ao rodar em tag de repo da org. Não há segredo
-#     manual na CI.
+#   - Autenticação no GHCR via um PAT com `write:packages`, guardado como secret
+#     `GHCR_TOKEN`/`GHCR_USER` no repositório. Por que não GITHUB_TOKEN: em ORG o
+#     token de repositório NÃO consegue empurrar pacotes da org (denied); o PAT
+#     clássico com write:packages resolve. O secret nunca aparece em texto.
 #   - Plataforma: `linux/amd64` — o único alvo homologado do v1 (ver
 #     `docs/arquitetura-v2.md` §8.4 e o bundle, que é amd64-only). Adicionar arm64
 #     é possível depois com `buildx --set platform`.
@@ -35,8 +36,8 @@ jobs:
     name: Build + push GHCR (lakecore-ingest, lakecore-backup)
     runs-on: ubuntu-latest
     permissions:
-      packages: write
       contents: read
+      packages: read
     env:
       REGISTRY: ghcr.io
       ORG: theseeds
@@ -64,8 +65,11 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Em org, o GITHUB_TOKEN de repositório NÃO consegue empurrar pacotes da
+          # org (denied). Por isso usa-se um PAT com escopo write:packages, guardado
+          # como secret GHCR_TOKEN no repo. Não há segredo em texto no repositório.
+          username: ${{ secrets.GHCR_USER }}
+          password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Build e push lakecore-ingest
         uses: docker/build-push-action@v6
